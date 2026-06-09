@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!--
+      Output files on API 26–28 are written to the app-specific external Downloads
+      directory (no runtime permission required). Expose it for Share/Preview intents.
+    -->
+    <external-files-path name="nex_downloads" path="Download/" />
+    <external-files-path name="nex_root" path="." />
+    <cache-path name="nex_cache" path="." />
+</paths>

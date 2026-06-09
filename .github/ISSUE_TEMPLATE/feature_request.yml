@@ -1,0 +1,29 @@
+name: 💡 Feature request
+description: Suggest an idea or a new conversion for NexCompress
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What are you trying to do? What's missing today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: dropdown
+    id: offline
+    attributes:
+      label: Can it run fully on-device?
+      options:
+        - "Yes — native/offline"
+        - "No — needs an online service"
+        - "Not sure"
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

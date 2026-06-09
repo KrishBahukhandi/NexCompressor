@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">NexCompress</string>
+    <string name="app_tagline">Compress PDF &amp; Convert Images Offline</string>
+
+    <!-- FileProvider authority is built from applicationId at runtime; kept here for reference. -->
+    <string name="fileprovider_authority">com.nexcompress.app.fileprovider</string>
+</resources>

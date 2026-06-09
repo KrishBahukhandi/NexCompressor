@@ -1,0 +1,12 @@
+<resources>
+    <!--
+      Base application theme. The app is fully Jetpack Compose, so this XML theme
+      only styles the host window (first frame + system bars) before Compose draws.
+      Actual app colors/typography live in com.nexcompress.app.ui.theme.
+    -->
+    <style name="Theme.NexCompress" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/nex_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>

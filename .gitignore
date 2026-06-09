@@ -1,0 +1,51 @@
+# ──────────────────────────────────────────────────────────────
+# NexCompress — .gitignore
+# ──────────────────────────────────────────────────────────────
+
+# Built application files
+*.apk
+*.aab
+*.aar
+*.ap_
+*.dex
+*.class
+
+# Gradle
+.gradle/
+build/
+**/build/
+# (gradle-wrapper.jar IS committed — do not ignore *.jar)
+
+# Kotlin
+.kotlin/
+
+# Local & machine-specific configuration
+local.properties
+
+# Secrets — NEVER commit signing keys or API credentials
+key.properties
+keystore.properties
+secrets.properties
+*.jks
+*.keystore
+google-services.json
+service-account*.json
+
+# Android Studio / IntelliJ
+*.iml
+.idea/
+captures/
+.externalNativeBuild/
+.cxx/
+output.json
+
+# NDK
+obj/
+
+# Logs & temp
+*.log
+*.hprof
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,5 @@
+<resources>
+    <!-- Window + launcher chrome. Runtime UI colors are defined in Compose (ui/theme). -->
+    <color name="nex_background">#FF0F1115</color>
+    <color name="ic_launcher_background">#FF5B5BD6</color>
+</resources>
