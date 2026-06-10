@@ -27,6 +27,18 @@ Compress PDFs, convert images, and turn files between formats — almost entirel
 | **Images → PDF** | Combine photos into a single multi-page PDF (reorderable pages). |
 | **Text → PDF** | Lay a `.txt` file out into a clean, paginated A4 PDF. |
 
+### Edit & sign (offline, lossless PDF engine)
+Powered by an on-device [PDFBox-Android](https://github.com/TomRoush/PdfBox-Android)
+engine — text stays selectable and **nothing is uploaded**.
+| Tool | Description |
+|------|-------------|
+| **Sign PDF** | Draw a signature with your finger, then drag & resize it onto any page. The signed page is flattened; every other page stays lossless. |
+| **Edit PDF pages** | Reorder (drag), rotate, or delete pages, then export. |
+| **Merge PDFs** | Concatenate several PDFs into one (reorderable). |
+| **Split PDF** | Extract a chosen set of pages into one PDF, or burst every page into its own file. |
+| **Protect PDF** | Lock a PDF with a password (AES/standard security) or unlock a protected one — the password never leaves the device. |
+| **Image Studio** | Rotate, flip, crop (draggable frame) and resize an image, then re-encode to JPG / PNG / WebP. |
+
 ### Online (optional, requires a conversion service)
 Office conversions that need a real rendering engine live in the sidebar and are
 **gated behind a connectivity check**: **Word ↔ PDF**, **PowerPoint → PDF**,
@@ -55,7 +67,8 @@ DI framework) and a single-Activity Jetpack Compose UI:
 com.nexcompress.app
 ├── data/
 │   ├── local/        # Room entity, DAO, database (history ledger)
-│   ├── processor/    # PdfCompressor, ImageConverter, PdfToImage, ImagesToPdf, TxtToPdf, FileStorageManager
+│   ├── processor/    # PdfCompressor, ImageConverter/Editor, PdfToImage, ImagesToPdf, TxtToPdf,
+│   │                 #   PdfPageEditor, PdfMerger, PdfSplitter, PdfProtector, PdfSigner, FileStorageManager
 │   ├── remote/       # OnlineConversionService + RestConversionService (configurable)
 │   └── repository/   # HistoryRepository
 ├── domain/model/     # Sealed CompressionState, enums, result models
@@ -71,6 +84,7 @@ com.nexcompress.app
 ## 🧰 Tech stack
 
 Kotlin 2.0 · Jetpack Compose (Material 3) · Coroutines · Room · Navigation-Compose ·
+[PDFBox-Android](https://github.com/TomRoush/PdfBox-Android) (offline PDF engine) ·
 Google Mobile Ads · AGP 8.7 / Gradle 8.9 · `minSdk 26`, `compileSdk 35`.
 
 ## 🚀 Build & run

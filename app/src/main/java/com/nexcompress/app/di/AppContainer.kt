@@ -6,8 +6,14 @@ import com.nexcompress.app.ads.AdMobManager
 import com.nexcompress.app.data.local.NexCompressDatabase
 import com.nexcompress.app.data.processor.FileStorageManager
 import com.nexcompress.app.data.processor.ImageConverter
+import com.nexcompress.app.data.processor.ImageEditor
 import com.nexcompress.app.data.processor.ImagesToPdfConverter
 import com.nexcompress.app.data.processor.PdfCompressor
+import com.nexcompress.app.data.processor.PdfMerger
+import com.nexcompress.app.data.processor.PdfPageEditor
+import com.nexcompress.app.data.processor.PdfProtector
+import com.nexcompress.app.data.processor.PdfSigner
+import com.nexcompress.app.data.processor.PdfSplitter
 import com.nexcompress.app.data.processor.PdfToImageConverter
 import com.nexcompress.app.data.processor.TxtToPdfConverter
 import com.nexcompress.app.data.remote.OnlineConversionService
@@ -39,6 +45,15 @@ class AppContainer(context: Context) {
     val txtToPdfConverter: TxtToPdfConverter by lazy {
         TxtToPdfConverter(appContext, fileStorageManager)
     }
+
+    // --- Advanced on-device tools (PDFBox engine + native image studio) ---
+    val imageEditor: ImageEditor by lazy { ImageEditor(appContext, fileStorageManager) }
+    val pdfPageEditor: PdfPageEditor by lazy { PdfPageEditor(appContext, fileStorageManager) }
+    val pdfMerger: PdfMerger by lazy { PdfMerger(appContext, fileStorageManager) }
+    val pdfSplitter: PdfSplitter by lazy { PdfSplitter(appContext, fileStorageManager) }
+    val pdfProtector: PdfProtector by lazy { PdfProtector(appContext, fileStorageManager) }
+    val pdfSigner: PdfSigner by lazy { PdfSigner(appContext, fileStorageManager) }
+
     val onlineConversionService: OnlineConversionService by lazy {
         RestConversionService(appContext, fileStorageManager)
     }
