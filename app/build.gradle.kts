@@ -80,8 +80,13 @@ dependencies {
     implementation(libs.androidx.material.icons.extended)
     implementation(libs.androidx.navigation.compose)
 
-    // Drag-to-reorder support for the image batch editor
+    // Drag-to-reorder support for the image batch / PDF page editors
     implementation(libs.reorderable)
+
+    // PDFBox-Android (tom_roush) — lossless on-device PDF editing engine:
+    // page reorder/rotate/delete, merge, split, password protect, signature overlay.
+    // Apache-2.0, fully offline — performs NO network I/O.
+    implementation(libs.pdfbox.android)
 
     // Coroutines (heavy multi-threaded file tasks)
     implementation(libs.kotlinx.coroutines.android)

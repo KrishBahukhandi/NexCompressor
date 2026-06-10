@@ -30,6 +30,12 @@ import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.ContentCut
+import androidx.compose.material.icons.filled.Crop
+import androidx.compose.material.icons.filled.Draw
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MergeType
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material.icons.outlined.IosShare
@@ -102,6 +108,12 @@ fun HomeScreen(
     onOpenPdfToImageConfig: () -> Unit,
     onOpenImagesToPdfConfig: () -> Unit,
     onOpenTxtToPdfConfig: () -> Unit,
+    onOpenImageStudio: () -> Unit,
+    onOpenPdfPages: () -> Unit,
+    onOpenMergePdf: () -> Unit,
+    onOpenSplitPdf: () -> Unit,
+    onOpenProtectPdf: () -> Unit,
+    onOpenSignPdf: () -> Unit,
     onOpenProcessing: () -> Unit,
     homeViewModel: HomeViewModel = viewModel(factory = AppViewModelProvider.Factory)
 ) {
@@ -209,6 +221,76 @@ fun HomeScreen(
         }
     }
 
+    // --- Advanced tools: SAF pickers ---
+    val imageStudioPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            compressionViewModel.onImageEditPicked(uri)
+            onOpenImageStudio()
+        }
+    }
+    val pdfPagesPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            compressionViewModel.onPdfPagesPicked(uri)
+            onOpenPdfPages()
+        }
+    }
+    val mergePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (!uris.isNullOrEmpty()) {
+            uris.forEach { uri ->
+                runCatching {
+                    context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+            }
+            compressionViewModel.onMergePicked(uris)
+            onOpenMergePdf()
+        }
+    }
+    val splitPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            compressionViewModel.onSplitPicked(uri)
+            onOpenSplitPdf()
+        }
+    }
+    val protectPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            compressionViewModel.onProtectPicked(uri)
+            onOpenProtectPdf()
+        }
+    }
+    val signPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            compressionViewModel.onSignPicked(uri)
+            onOpenSignPdf()
+        }
+    }
+
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
@@ -232,6 +314,30 @@ fun HomeScreen(
                 onTxtToPdf = {
                     scope.launch { drawerState.close() }
                     runCatching { txtPicker.launch(arrayOf("text/plain")) }
+                },
+                onSignPdf = {
+                    scope.launch { drawerState.close() }
+                    runCatching { signPicker.launch(arrayOf("application/pdf")) }
+                },
+                onImageStudio = {
+                    scope.launch { drawerState.close() }
+                    runCatching { imageStudioPicker.launch(arrayOf("image/*")) }
+                },
+                onPdfPages = {
+                    scope.launch { drawerState.close() }
+                    runCatching { pdfPagesPicker.launch(arrayOf("application/pdf")) }
+                },
+                onMergePdf = {
+                    scope.launch { drawerState.close() }
+                    runCatching { mergePicker.launch(arrayOf("application/pdf")) }
+                },
+                onSplitPdf = {
+                    scope.launch { drawerState.close() }
+                    runCatching { splitPicker.launch(arrayOf("application/pdf")) }
+                },
+                onProtectPdf = {
+                    scope.launch { drawerState.close() }
+                    runCatching { protectPicker.launch(arrayOf("application/pdf")) }
                 },
                 onlineConfigured = compressionViewModel.isOnlineConfigured,
                 onOnlineConversion = { conversion ->
@@ -316,6 +422,27 @@ fun HomeScreen(
                         title = "Convert Images",
                         subtitle = "To JPG, PNG or WebP",
                         onClick = { runCatching { imagePicker.launch(arrayOf("image/*")) } }
+                    )
+                }
+            }
+
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    FeatureTile(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Filled.Draw,
+                        accent = NexGreen,
+                        title = "Sign PDF",
+                        subtitle = "Draw & place signature",
+                        onClick = { runCatching { signPicker.launch(arrayOf("application/pdf")) } }
+                    )
+                    FeatureTile(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Filled.Layers,
+                        accent = NexIndigo,
+                        title = "Edit PDF",
+                        subtitle = "Reorder, rotate, delete",
+                        onClick = { runCatching { pdfPagesPicker.launch(arrayOf("application/pdf")) } }
                     )
                 }
             }
@@ -662,6 +789,12 @@ private fun NexDrawerSheet(
     onPdfToImages: () -> Unit,
     onImagesToPdf: () -> Unit,
     onTxtToPdf: () -> Unit,
+    onSignPdf: () -> Unit,
+    onImageStudio: () -> Unit,
+    onPdfPages: () -> Unit,
+    onMergePdf: () -> Unit,
+    onSplitPdf: () -> Unit,
+    onProtectPdf: () -> Unit,
     onlineConfigured: Boolean,
     onOnlineConversion: (OnlineConversion) -> Unit
 ) {
@@ -724,6 +857,51 @@ private fun NexDrawerSheet(
                 icon = { Icon(Icons.AutoMirrored.Filled.TextSnippet, contentDescription = null) },
                 selected = false,
                 onClick = onTxtToPdf,
+                modifier = Modifier.padding(horizontal = 12.dp)
+            )
+
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            DrawerSectionLabel("Edit & sign · on-device")
+            NavigationDrawerItem(
+                label = { Text("Sign PDF") },
+                icon = { Icon(Icons.Filled.Draw, contentDescription = null) },
+                selected = false,
+                onClick = onSignPdf,
+                modifier = Modifier.padding(horizontal = 12.dp)
+            )
+            NavigationDrawerItem(
+                label = { Text("Edit PDF pages") },
+                icon = { Icon(Icons.Filled.Layers, contentDescription = null) },
+                selected = false,
+                onClick = onPdfPages,
+                modifier = Modifier.padding(horizontal = 12.dp)
+            )
+            NavigationDrawerItem(
+                label = { Text("Merge PDFs") },
+                icon = { Icon(Icons.Filled.MergeType, contentDescription = null) },
+                selected = false,
+                onClick = onMergePdf,
+                modifier = Modifier.padding(horizontal = 12.dp)
+            )
+            NavigationDrawerItem(
+                label = { Text("Split PDF") },
+                icon = { Icon(Icons.Filled.ContentCut, contentDescription = null) },
+                selected = false,
+                onClick = onSplitPdf,
+                modifier = Modifier.padding(horizontal = 12.dp)
+            )
+            NavigationDrawerItem(
+                label = { Text("Protect PDF") },
+                icon = { Icon(Icons.Filled.Lock, contentDescription = null) },
+                selected = false,
+                onClick = onProtectPdf,
+                modifier = Modifier.padding(horizontal = 12.dp)
+            )
+            NavigationDrawerItem(
+                label = { Text("Image Studio") },
+                icon = { Icon(Icons.Filled.Crop, contentDescription = null) },
+                selected = false,
+                onClick = onImageStudio,
                 modifier = Modifier.padding(horizontal = 12.dp)
             )
 
