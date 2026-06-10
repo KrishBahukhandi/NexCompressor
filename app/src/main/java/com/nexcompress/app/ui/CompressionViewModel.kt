@@ -355,7 +355,7 @@ class CompressionViewModel(
         viewModelScope.launch {
             val picked = withContext(Dispatchers.IO) { storage.resolveMetadata(uri, FileType.PDF) }
             pdfPagesSource = picked
-            pdfPagesName = storage.baseNameOf(picked.displayName)
+            pdfPagesName = storage.baseNameOf(picked.displayName) + "-edited"
             pdfPageOps = emptyList()
             _state.value = CompressionState.Idle
             val count = pdfPageEditor.pageCount(picked)
@@ -470,10 +470,14 @@ class CompressionViewModel(
         viewModelScope.launch {
             val picked = withContext(Dispatchers.IO) { storage.resolveMetadata(uri, FileType.PDF) }
             protectSource = picked
-            protectName = storage.baseNameOf(picked.displayName)
+            protectName = storage.baseNameOf(picked.displayName) + "-locked"
             _state.value = CompressionState.Idle
         }
     }
+
+    /** Base name (no extension) of the picked file, for suffix swaps in the UI. */
+    fun protectSourceBaseName(): String? =
+        protectSource?.let { storage.baseNameOf(it.displayName) }
 
     fun updateProtectName(name: String) {
         protectName = name

@@ -103,7 +103,8 @@ fun SignPdfScreen(
     onStartProcessing: () -> Unit
 ) {
     val source = viewModel.signSource
-    val renderer by rememberPdfRenderer(source?.uriString ?: "")
+    val rendererState = rememberPdfRenderer(source?.uriString)
+    val renderer = rendererState.renderer
     val pageCount = renderer?.pageCount ?: 0
 
     var selectedPage by remember { mutableIntStateOf(0) }
@@ -177,7 +178,15 @@ fun SignPdfScreen(
                 contentAlignment = Alignment.Center
             ) {
                 val bmp = pagePreview
-                if (bmp == null) {
+                if (rendererState.failed) {
+                    Text(
+                        "Couldn't read this PDF. It may be corrupted or password-protected " +
+                            "(unlock it first via Protect PDF).",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(24.dp)
+                    )
+                } else if (bmp == null) {
                     CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 3.dp)
                 } else {
                     val aspect = (bmp.width.toFloat() / bmp.height.toFloat()).coerceIn(0.2f, 5f)
@@ -273,7 +282,7 @@ fun SignPdfScreen(
                     )
                     onStartProcessing()
                 },
-                enabled = source != null && signaturePng != null,
+                enabled = source != null && signaturePng != null && !rendererState.failed,
                 modifier = Modifier.fillMaxWidth().height(54.dp),
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)

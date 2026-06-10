@@ -11,11 +11,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -24,33 +24,52 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.nexcompress.app.data.processor.PdfPageRenderer
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
+ * Lifecycle of the document renderer behind a screen: null renderer + !failed
+ * while the document is being staged, a usable renderer on success, or
+ * [failed] = true when the PDF can't be opened (corrupted / password-protected).
+ */
+data class PdfRendererState(
+    val renderer: PdfPageRenderer? = null,
+    val failed: Boolean = false
+)
+
+/**
  * Opens a single [PdfPageRenderer] for [uriString], staging the document off the
- * main thread, and tears it down when the composition leaves. Share the returned
+ * main thread, and tears it down when the composition leaves — including when
+ * disposal happens while the open is still in flight. Share the returned
  * renderer across all page thumbnails on a screen (renders are serialized).
  */
 @Composable
-fun rememberPdfRenderer(uriString: String): State<PdfPageRenderer?> {
+fun rememberPdfRenderer(uriString: String?): PdfRendererState {
     val context = LocalContext.current
-    val state = remember(uriString) { mutableStateOf<PdfPageRenderer?>(null) }
+    var state by remember(uriString) { mutableStateOf(PdfRendererState()) }
     DisposableEffect(uriString) {
-        var created: PdfPageRenderer? = null
-        val scope = CoroutineScope(Dispatchers.IO)
-        scope.launch {
-            val r = runCatching { PdfPageRenderer(context, Uri.parse(uriString)) }.getOrNull()
-            created = r
-            withContext(Dispatchers.Main) { state.value = r }
+        val disposed = AtomicBoolean(false)
+        if (!uriString.isNullOrBlank()) {
+            // No scope.cancel() on dispose: the open must run to completion so a
+            // late-arriving renderer can be closed instead of leaking its temp file.
+            CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+                val r = runCatching { PdfPageRenderer(context, Uri.parse(uriString)) }.getOrNull()
+                withContext(Dispatchers.Main) {
+                    if (disposed.get()) {
+                        r?.close()
+                    } else {
+                        state = PdfRendererState(renderer = r, failed = r == null)
+                    }
+                }
+            }
         }
         onDispose {
-            scope.cancel()
-            created?.close()
-            state.value = null
+            disposed.set(true)
+            state.renderer?.close()
         }
     }
     return state

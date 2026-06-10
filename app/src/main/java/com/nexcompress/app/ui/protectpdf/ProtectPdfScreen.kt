@@ -37,9 +37,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -72,6 +72,16 @@ fun ProtectPdfScreen(
 
     val mismatch = !unlockMode && confirm.isNotEmpty() && password != confirm
     val canSubmit = input != null && password.isNotBlank() && (unlockMode || (password == confirm))
+
+    // Keep the default "-locked"/"-unlocked" suffix in step with the chosen action,
+    // but never touch a name the user has edited themselves.
+    LaunchedEffect(unlockMode, input) {
+        val base = viewModel.protectSourceBaseName() ?: return@LaunchedEffect
+        val expected = base + if (unlockMode) "-locked" else "-unlocked"
+        if (viewModel.protectName == expected) {
+            viewModel.updateProtectName(base + if (unlockMode) "-unlocked" else "-locked")
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -185,6 +195,24 @@ fun ProtectPdfScreen(
                     )
                 }
             }
+
+            Spacer(Modifier.height(4.dp))
+            SectionLabel("Output file name")
+            OutlinedTextField(
+                value = viewModel.protectName,
+                onValueChange = { viewModel.updateProtectName(it) },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                trailingIcon = {
+                    Text(
+                        ".pdf",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(end = 12.dp)
+                    )
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
 
             Spacer(Modifier.height(8.dp))
             Button(

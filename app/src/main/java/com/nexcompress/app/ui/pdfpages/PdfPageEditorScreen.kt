@@ -61,7 +61,8 @@ fun PdfPageEditorScreen(
 ) {
     val input = viewModel.pdfPagesSource
     val ops = viewModel.pdfPageOps
-    val renderer by rememberPdfRenderer(input?.uriString ?: "")
+    val rendererState = rememberPdfRenderer(input?.uriString)
+    val renderer = rendererState.renderer
 
     Scaffold(
         topBar = {
@@ -87,7 +88,15 @@ fun PdfPageEditorScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             SectionLabel("Pages (${ops.size})")
-            if (input == null || ops.isEmpty()) {
+            if (rendererState.failed) {
+                Text(
+                    "Couldn't read this PDF. It may be corrupted or password-protected " +
+                        "(unlock it first via Protect PDF).",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(8.dp)
+                )
+            } else if (input == null || ops.isEmpty()) {
                 Text(
                     "Reading document…",
                     style = MaterialTheme.typography.bodyMedium,

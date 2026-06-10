@@ -720,11 +720,21 @@ private fun HistoryRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Text(
-                    "-" + FormatUtils.formatBytesCompact(entry.savings),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = NexGreen
-                )
+                // Compression jobs report bytes saved; conversions (no savings)
+                // report the produced file's size instead of a misleading "-0B".
+                if (entry.savings > 0) {
+                    Text(
+                        "-" + FormatUtils.formatBytesCompact(entry.savings),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = NexGreen
+                    )
+                } else {
+                    Text(
+                        FormatUtils.formatBytesCompact(entry.outputSize),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
             IconButton(onClick = onRename, modifier = Modifier.size(40.dp)) {
                 Icon(

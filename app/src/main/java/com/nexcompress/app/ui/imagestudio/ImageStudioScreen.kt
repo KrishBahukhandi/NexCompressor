@@ -76,6 +76,8 @@ import com.nexcompress.app.domain.model.ImageEditSpec
 import com.nexcompress.app.domain.model.ImageFormat
 import com.nexcompress.app.ui.CompressionViewModel
 import com.nexcompress.app.ui.components.SectionLabel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * On-device image studio: rotate, flip, crop and resize a single image, then
@@ -109,9 +111,14 @@ fun ImageStudioScreen(
         cropL = 0f; cropT = 0f; cropR = 1f; cropB = 1f
     }
 
+    var previewFailed by remember(source?.uriString) { mutableStateOf(false) }
     val preview by produceState<Bitmap?>(null, source?.uriString, rotation, flipH, flipV) {
         val uri = source?.uriString
-        value = if (uri == null) null else loadPreview(context, Uri.parse(uri), rotation, flipH, flipV)
+        // Decode + transform on IO; doing this on Main froze the UI on big photos.
+        value = if (uri == null) null else withContext(Dispatchers.IO) {
+            runCatching { loadPreview(context, Uri.parse(uri), rotation, flipH, flipV) }.getOrNull()
+        }
+        previewFailed = uri != null && value == null
     }
 
     Scaffold(
@@ -146,7 +153,14 @@ fun ImageStudioScreen(
                 contentAlignment = Alignment.Center
             ) {
                 val bmp = preview
-                if (bmp == null) {
+                if (previewFailed) {
+                    Text(
+                        "Couldn't read this image. It may be corrupted or in an unsupported format.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(24.dp)
+                    )
+                } else if (bmp == null) {
                     CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 3.dp)
                 } else {
                     val aspect = (bmp.width.toFloat() / bmp.height.toFloat()).coerceIn(0.2f, 5f)
@@ -273,7 +287,7 @@ fun ImageStudioScreen(
                     viewModel.startImageEdit(spec)
                     onStartProcessing()
                 },
-                enabled = source != null,
+                enabled = source != null && preview != null,
                 modifier = Modifier.fillMaxWidth().height(54.dp),
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)

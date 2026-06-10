@@ -69,7 +69,8 @@ fun SplitPdfScreen(
 ) {
     val input = viewModel.splitSource
     val pageCount = viewModel.splitPageCount
-    val renderer by rememberPdfRenderer(input?.uriString ?: "")
+    val rendererState = rememberPdfRenderer(input?.uriString)
+    val renderer = rendererState.renderer
     var splitAll by rememberSaveable { mutableStateOf(false) }
     val selected = remember { mutableStateListOf<Int>() }
 
@@ -120,6 +121,18 @@ fun SplitPdfScreen(
 
             Spacer(Modifier.height(10.dp))
 
+            if (rendererState.failed) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        "Couldn't read this PDF. It may be corrupted or password-protected " +
+                            "(unlock it first via Protect PDF).",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(24.dp)
+                    )
+                }
+                return@Column
+            }
             if (input == null || pageCount == 0) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     if (input != null) {

@@ -103,7 +103,9 @@ class PdfSplitter(
                     val saved = storage.writeOutput(outName, "application/pdf") { os -> one.save(os) }
                     items += OutputItem(
                         displayName = outName,
-                        originalSize = 0L,
+                        // Attribute the source size once so the results screen
+                        // reports a sane input footprint for the whole job.
+                        originalSize = if (i == 0) source.sizeBytes else 0L,
                         outputSize = saved.sizeBytes,
                         uri = saved.uri.toString(),
                         type = FileType.PDF
