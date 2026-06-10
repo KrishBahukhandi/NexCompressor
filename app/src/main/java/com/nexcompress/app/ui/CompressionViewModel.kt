@@ -8,8 +8,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nexcompress.app.data.processor.FileStorageManager
 import com.nexcompress.app.data.processor.ImageConverter
+import com.nexcompress.app.data.processor.ImageEditor
 import com.nexcompress.app.data.processor.ImagesToPdfConverter
 import com.nexcompress.app.data.processor.PdfCompressor
+import com.nexcompress.app.data.processor.PdfMerger
+import com.nexcompress.app.data.processor.PdfPageEditor
+import com.nexcompress.app.data.processor.PdfProtector
+import com.nexcompress.app.data.processor.PdfSigner
+import com.nexcompress.app.data.processor.PdfSplitter
 import com.nexcompress.app.data.processor.PdfToImageConverter
 import com.nexcompress.app.data.processor.TxtToPdfConverter
 import com.nexcompress.app.data.remote.OnlineConversionService
@@ -20,9 +26,12 @@ import com.nexcompress.app.domain.model.CompressionResult
 import com.nexcompress.app.domain.model.CompressionState
 import com.nexcompress.app.domain.model.FileType
 import com.nexcompress.app.domain.model.ImageBatchItem
+import com.nexcompress.app.domain.model.ImageEditSpec
 import com.nexcompress.app.domain.model.ImageFormat
 import com.nexcompress.app.domain.model.OnlineConversion
+import com.nexcompress.app.domain.model.PdfPageOp
 import com.nexcompress.app.domain.model.PickedFile
+import com.nexcompress.app.domain.model.SignaturePlacement
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -43,6 +52,12 @@ class CompressionViewModel(
     private val pdfToImageConverter: PdfToImageConverter,
     private val imagesToPdfConverter: ImagesToPdfConverter,
     private val txtToPdfConverter: TxtToPdfConverter,
+    private val imageEditor: ImageEditor,
+    private val pdfPageEditor: PdfPageEditor,
+    private val pdfMerger: PdfMerger,
+    private val pdfSplitter: PdfSplitter,
+    private val pdfProtector: PdfProtector,
+    private val pdfSigner: PdfSigner,
     private val onlineConversionService: OnlineConversionService
 ) : ViewModel() {
 
@@ -89,6 +104,46 @@ class CompressionViewModel(
 
     // --- Online (Office) conversion ---
     var onlineConversion by mutableStateOf<OnlineConversion?>(null)
+        private set
+
+    // --- Image Studio (resize / crop / rotate) ---
+    var imageEditSource by mutableStateOf<PickedFile?>(null)
+        private set
+    var imageEditName by mutableStateOf("")
+        private set
+
+    // --- PDF page editor (reorder / rotate / delete) ---
+    var pdfPagesSource by mutableStateOf<PickedFile?>(null)
+        private set
+    var pdfPageOps by mutableStateOf<List<PdfPageOp>>(emptyList())
+        private set
+    var pdfPagesName by mutableStateOf("")
+        private set
+
+    // --- Merge PDFs ---
+    var mergeItems by mutableStateOf<List<PickedFile>>(emptyList())
+        private set
+    var mergeName by mutableStateOf("")
+        private set
+
+    // --- Split / extract PDF ---
+    var splitSource by mutableStateOf<PickedFile?>(null)
+        private set
+    var splitName by mutableStateOf("")
+        private set
+    var splitPageCount by mutableStateOf(0)
+        private set
+
+    // --- Protect / unlock PDF ---
+    var protectSource by mutableStateOf<PickedFile?>(null)
+        private set
+    var protectName by mutableStateOf("")
+        private set
+
+    // --- Sign PDF ---
+    var signSource by mutableStateOf<PickedFile?>(null)
+        private set
+    var signName by mutableStateOf("")
         private set
 
     // --- Processing state (Screen 3 / 4) ---
@@ -271,6 +326,199 @@ class CompressionViewModel(
         onlineConversionService.convert(input, conversion)
     }
 
+    // ===================== Image Studio (resize / crop / rotate) =====================
+
+    fun onImageEditPicked(uri: Uri) {
+        viewModelScope.launch {
+            val picked = withContext(Dispatchers.IO) { storage.resolveMetadata(uri, FileType.IMAGE) }
+            imageEditSource = picked
+            imageEditName = storage.baseNameOf(picked.displayName)
+            _state.value = CompressionState.Idle
+        }
+    }
+
+    fun updateImageEditName(name: String) {
+        imageEditName = name
+    }
+
+    /** Applies the on-screen edit (rotate/flip/crop/resize + format) to the picked image. */
+    fun startImageEdit(spec: ImageEditSpec) = launchJob {
+        val input = imageEditSource
+            ?: throw CompressionException("No image selected. Please pick an image first.")
+        val name = imageEditName.ifBlank { storage.baseNameOf(input.displayName) }
+        imageEditor.edit(input, spec, name)
+    }
+
+    // ===================== PDF page editor (reorder / rotate / delete) ================
+
+    fun onPdfPagesPicked(uri: Uri) {
+        viewModelScope.launch {
+            val picked = withContext(Dispatchers.IO) { storage.resolveMetadata(uri, FileType.PDF) }
+            pdfPagesSource = picked
+            pdfPagesName = storage.baseNameOf(picked.displayName) + "-edited"
+            pdfPageOps = emptyList()
+            _state.value = CompressionState.Idle
+            val count = pdfPageEditor.pageCount(picked)
+            pdfPageOps = (0 until count).map { PdfPageOp(it, 0) }
+        }
+    }
+
+    fun movePdfPage(fromIndex: Int, toIndex: Int) {
+        if (fromIndex == toIndex) return
+        pdfPageOps = pdfPageOps.toMutableList().apply { add(toIndex, removeAt(fromIndex)) }
+    }
+
+    /** Adds a 90° clockwise turn to one page. */
+    fun rotatePdfPage(index: Int) {
+        pdfPageOps = pdfPageOps.mapIndexed { i, op ->
+            if (i == index) op.copy(rotation = (op.rotation + 90) % 360) else op
+        }
+    }
+
+    fun deletePdfPage(index: Int) {
+        pdfPageOps = pdfPageOps.filterIndexed { i, _ -> i != index }
+    }
+
+    fun updatePdfPagesName(name: String) {
+        pdfPagesName = name
+    }
+
+    fun startPdfPageEdit() = launchJob {
+        val input = pdfPagesSource
+            ?: throw CompressionException("No document selected. Please pick a PDF first.")
+        val name = pdfPagesName.ifBlank { storage.baseNameOf(input.displayName) }
+        pdfPageEditor.apply(input, pdfPageOps, name)
+    }
+
+    // ===================== Merge PDFs ================================================
+
+    fun onMergePicked(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        viewModelScope.launch {
+            val items = withContext(Dispatchers.IO) {
+                uris.take(MAX_MERGE_SELECTION).map { storage.resolveMetadata(it, FileType.PDF) }
+            }
+            mergeItems = items
+            mergeName = items.firstOrNull()?.let { storage.baseNameOf(it.displayName) + "-merged" } ?: "merged"
+            _state.value = CompressionState.Idle
+        }
+    }
+
+    fun onMergePickedAppend(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        viewModelScope.launch {
+            val added = withContext(Dispatchers.IO) { uris.map { storage.resolveMetadata(it, FileType.PDF) } }
+            mergeItems = (mergeItems + added).distinctBy { it.uriString }.take(MAX_MERGE_SELECTION)
+        }
+    }
+
+    fun moveMergeItem(fromIndex: Int, toIndex: Int) {
+        if (fromIndex == toIndex) return
+        mergeItems = mergeItems.toMutableList().apply { add(toIndex, removeAt(fromIndex)) }
+    }
+
+    fun removeMergeItemAt(index: Int) {
+        mergeItems = mergeItems.filterIndexed { i, _ -> i != index }
+    }
+
+    fun updateMergeName(name: String) {
+        mergeName = name
+    }
+
+    fun startMerge() = launchJob {
+        if (mergeItems.size < 2) {
+            throw CompressionException("Pick at least two PDFs to merge.")
+        }
+        pdfMerger.merge(mergeItems, mergeName.ifBlank { "merged" })
+    }
+
+    // ===================== Split / extract PDF ======================================
+
+    fun onSplitPicked(uri: Uri) {
+        viewModelScope.launch {
+            val picked = withContext(Dispatchers.IO) { storage.resolveMetadata(uri, FileType.PDF) }
+            splitSource = picked
+            splitName = storage.baseNameOf(picked.displayName)
+            splitPageCount = 0
+            _state.value = CompressionState.Idle
+            splitPageCount = pdfSplitter.pageCount(picked)
+        }
+    }
+
+    fun updateSplitName(name: String) {
+        splitName = name
+    }
+
+    /** Pulls the chosen [pageIndices] (0-based) into a single new PDF. */
+    fun startSplitExtract(pageIndices: List<Int>) = launchJob {
+        val input = splitSource
+            ?: throw CompressionException("No document selected. Please pick a PDF first.")
+        if (pageIndices.isEmpty()) throw CompressionException("Select at least one page to extract.")
+        pdfSplitter.extract(input, pageIndices, splitName.ifBlank { storage.baseNameOf(input.displayName) })
+    }
+
+    /** Explodes every page into its own PDF. */
+    fun startSplitEach() = launchJob {
+        val input = splitSource
+            ?: throw CompressionException("No document selected. Please pick a PDF first.")
+        pdfSplitter.splitEach(input, splitName.ifBlank { storage.baseNameOf(input.displayName) })
+    }
+
+    // ===================== Protect / unlock PDF =====================================
+
+    fun onProtectPicked(uri: Uri) {
+        viewModelScope.launch {
+            val picked = withContext(Dispatchers.IO) { storage.resolveMetadata(uri, FileType.PDF) }
+            protectSource = picked
+            protectName = storage.baseNameOf(picked.displayName) + "-locked"
+            _state.value = CompressionState.Idle
+        }
+    }
+
+    /** Base name (no extension) of the picked file, for suffix swaps in the UI. */
+    fun protectSourceBaseName(): String? =
+        protectSource?.let { storage.baseNameOf(it.displayName) }
+
+    fun updateProtectName(name: String) {
+        protectName = name
+    }
+
+    fun startProtect(password: String) = launchJob {
+        val input = protectSource
+            ?: throw CompressionException("No document selected. Please pick a PDF first.")
+        val name = protectName.ifBlank { storage.baseNameOf(input.displayName) + "-locked" }
+        pdfProtector.protect(input, password, name)
+    }
+
+    fun startUnlock(password: String) = launchJob {
+        val input = protectSource
+            ?: throw CompressionException("No document selected. Please pick a PDF first.")
+        val name = protectName.ifBlank { storage.baseNameOf(input.displayName) + "-unlocked" }
+        pdfProtector.unlock(input, password, name)
+    }
+
+    // ===================== Sign PDF =================================================
+
+    fun onSignPicked(uri: Uri) {
+        viewModelScope.launch {
+            val picked = withContext(Dispatchers.IO) { storage.resolveMetadata(uri, FileType.PDF) }
+            signSource = picked
+            signName = storage.baseNameOf(picked.displayName) + "-signed"
+            _state.value = CompressionState.Idle
+        }
+    }
+
+    fun updateSignName(name: String) {
+        signName = name
+    }
+
+    fun startSign(signaturePng: ByteArray, placement: SignaturePlacement) = launchJob {
+        val input = signSource
+            ?: throw CompressionException("No document selected. Please pick a PDF first.")
+        val name = signName.ifBlank { storage.baseNameOf(input.displayName) + "-signed" }
+        pdfSigner.sign(input, signaturePng, placement, name)
+    }
+
     private fun launchJob(work: suspend () -> CompressionResult) {
         if (_state.value is CompressionState.Loading) return
         _state.value = CompressionState.Loading
@@ -312,6 +560,20 @@ class CompressionViewModel(
         txtPdfName = ""
         txtFontSize = DEFAULT_TXT_FONT_SIZE
         onlineConversion = null
+        imageEditSource = null
+        imageEditName = ""
+        pdfPagesSource = null
+        pdfPageOps = emptyList()
+        pdfPagesName = ""
+        mergeItems = emptyList()
+        mergeName = ""
+        splitSource = null
+        splitName = ""
+        splitPageCount = 0
+        protectSource = null
+        protectName = ""
+        signSource = null
+        signName = ""
         _state.value = CompressionState.Idle
     }
 
@@ -319,5 +581,6 @@ class CompressionViewModel(
         private const val DEFAULT_IMAGE_QUALITY = 80
         private const val DEFAULT_TXT_FONT_SIZE = 11
         const val MAX_IMAGE_SELECTION = 5
+        const val MAX_MERGE_SELECTION = 20
     }
 }

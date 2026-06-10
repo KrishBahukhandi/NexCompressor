@@ -182,46 +182,64 @@ private fun AnalysisCard(result: CompressionResult) {
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(Modifier.padding(18.dp)) {
-            MetricRow("Original Resource Profile", FormatUtils.formatBytes(result.originalSize))
-            MetricRow("Optimized Target Footprint", FormatUtils.formatBytes(result.outputSize))
-            HorizontalDivider(
-                Modifier.padding(vertical = 6.dp),
-                color = MaterialTheme.colorScheme.outlineVariant
-            )
-            MetricRow(
-                label = "TOTAL FILESYSTEM SAVINGS",
-                value = FormatUtils.formatBytes(result.savings),
-                emphasize = true,
-                valueColor = NexGreen
-            )
-            Spacer(Modifier.height(8.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    "Efficiency Delta Scaling",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+            if (result.savings > 0) {
+                // Compression framing: before / after / bytes reclaimed.
+                MetricRow("Original Resource Profile", FormatUtils.formatBytes(result.originalSize))
+                MetricRow("Optimized Target Footprint", FormatUtils.formatBytes(result.outputSize))
+                HorizontalDivider(
+                    Modifier.padding(vertical = 6.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant
                 )
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = NexGreen.copy(alpha = 0.16f)
+                MetricRow(
+                    label = "TOTAL FILESYSTEM SAVINGS",
+                    value = FormatUtils.formatBytes(result.savings),
+                    emphasize = true,
+                    valueColor = NexGreen
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        "${result.efficiencyPercent}% Down",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = NexGreen,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                        "Efficiency Delta Scaling",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = NexGreen.copy(alpha = 0.16f)
+                    ) {
+                        Text(
+                            "${result.efficiencyPercent}% Down",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = NexGreen,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                        )
+                    }
                 }
+            } else {
+                // Conversion / edit framing: a new asset was produced, nothing was
+                // "saved" — a 0%-down badge here would read like a failure.
+                if (result.originalSize > 0) {
+                    MetricRow("Total Input Size", FormatUtils.formatBytes(result.originalSize))
+                }
+                HorizontalDivider(
+                    Modifier.padding(vertical = 6.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant
+                )
+                MetricRow(
+                    label = if (result.items.size > 1) "TOTAL OUTPUT SIZE" else "OUTPUT FILE SIZE",
+                    value = FormatUtils.formatBytes(result.outputSize),
+                    emphasize = true
+                )
             }
             if (result.isBatch) {
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "${result.items.size} images converted",
+                    "${result.items.size} files created",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
