@@ -6,6 +6,7 @@ import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
 import android.net.Uri
+import android.util.Base64
 import android.util.Log
 import com.nexcompress.app.BuildConfig
 import com.nexcompress.app.data.processor.FileStorageManager
@@ -24,6 +25,7 @@ import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
 import java.net.URL
+import java.net.URLEncoder
 
 /**
  * Provider-agnostic conversion client modelled on a ConvertAPI-style contract:
@@ -58,7 +60,10 @@ class RestConversionService(
     private fun realConvert(input: PickedFile, conversion: OnlineConversion): CompressionResult {
         val srcUri = Uri.parse(input.uriString)
         val fromExt = extensionOf(input.displayName).ifBlank { conversion.defaultSourceExt }
-        val endpoint = "$baseUrl/convert/$fromExt/to/${conversion.targetExt}?Secret=$apiKey"
+        // StoreFile=true makes the service reply with a download Url; without it
+        // the converted file comes back inline as base64 FileData (handled too).
+        val endpoint = "$baseUrl/convert/$fromExt/to/${conversion.targetExt}" +
+            "?Secret=${URLEncoder.encode(apiKey, "UTF-8")}&StoreFile=true"
         val boundary = "----NexCompress${System.currentTimeMillis()}"
 
         val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
@@ -94,7 +99,7 @@ class RestConversionService(
             }
 
             val body = connection.inputStream.bufferedReader().use { it.readText() }
-            val resultUrl = parseResultUrl(body)
+            val converted = parseResultFile(body)
                 ?: throw CompressionException("The conversion service returned an unexpected response.")
 
             val outName = storage.composeOutputName(
@@ -102,7 +107,11 @@ class RestConversionService(
                 conversion.targetExt
             )
             val saved = storage.writeOutput(outName, conversion.targetMime) { os ->
-                download(resultUrl, os)
+                when {
+                    converted.url != null -> download(converted.url, os)
+                    converted.base64Data != null ->
+                        os.write(Base64.decode(converted.base64Data, Base64.DEFAULT))
+                }
             }
 
             val type = if (conversion.producesPdf) FileType.PDF else FileType.DOCUMENT
@@ -128,12 +137,14 @@ class RestConversionService(
         }
     }
 
-    private fun parseResultUrl(body: String): String? = try {
-        JSONObject(body)
-            .optJSONArray("Files")
-            ?.optJSONObject(0)
-            ?.optString("Url")
-            ?.takeIf { it.isNotBlank() }
+    /** A converted file is delivered either by download Url or inline base64. */
+    private data class ConvertedFile(val url: String?, val base64Data: String?)
+
+    private fun parseResultFile(body: String): ConvertedFile? = try {
+        val first = JSONObject(body).optJSONArray("Files")?.optJSONObject(0)
+        val url = first?.optString("Url")?.takeIf { it.isNotBlank() }
+        val data = first?.optString("FileData")?.takeIf { it.isNotBlank() }
+        if (url == null && data == null) null else ConvertedFile(url, data)
     } catch (e: Exception) {
         null
     }
