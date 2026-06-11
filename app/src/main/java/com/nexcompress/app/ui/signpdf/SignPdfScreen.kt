@@ -11,6 +11,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,6 +28,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -54,13 +56,14 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -119,9 +122,10 @@ fun SignPdfScreen(
         signaturePng?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
     }
 
-    val pagePreview by produceState<Bitmap?>(null, renderer, selectedPage) {
+    var pagePreview by remember(renderer, selectedPage) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(renderer, selectedPage) {
         val r = renderer
-        value = if (r == null) null else withContext(Dispatchers.IO) {
+        pagePreview = if (r == null) null else withContext(Dispatchers.IO) {
             runCatching { r.renderPage(selectedPage, 1200) }.getOrNull()
         }
     }
@@ -209,7 +213,7 @@ fun SignPdfScreen(
                                 sigL = sigL,
                                 sigT = sigT,
                                 sigW = sigW,
-                                onMove = { nl, nt -> sigL = nl; sigT = nt }
+                                onPlace = { nl, nt, nw -> sigL = nl; sigT = nt; sigW = nw }
                             )
                         }
                     }
@@ -228,12 +232,18 @@ fun SignPdfScreen(
                 }
                 if (signaturePng != null) {
                     OutlinedButton(
-                        onClick = { sigW = (sigW - 0.05f).coerceIn(0.12f, 0.9f) },
+                        onClick = {
+                            sigW = (sigW - 0.05f).coerceIn(0.12f, 0.9f)
+                            sigL = sigL.coerceIn(0f, 1f - sigW)
+                        },
                         modifier = Modifier.height(50.dp),
                         shape = RoundedCornerShape(14.dp)
                     ) { Icon(Icons.Filled.ZoomOut, contentDescription = "Smaller") }
                     OutlinedButton(
-                        onClick = { sigW = (sigW + 0.05f).coerceIn(0.12f, 0.9f) },
+                        onClick = {
+                            sigW = (sigW + 0.05f).coerceIn(0.12f, 0.9f)
+                            sigL = sigL.coerceIn(0f, 1f - sigW)
+                        },
                         modifier = Modifier.height(50.dp),
                         shape = RoundedCornerShape(14.dp)
                     ) { Icon(Icons.Filled.ZoomIn, contentDescription = "Larger") }
@@ -241,7 +251,7 @@ fun SignPdfScreen(
             }
             if (signaturePng != null) {
                 Text(
-                    "Drag the signature to move it; use the zoom buttons to resize.",
+                    "Drag the signature anywhere on the page; pinch or pull the corner dot to resize.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -314,6 +324,16 @@ fun SignPdfScreen(
     }
 }
 
+/**
+ * The movable/resizable signature box over the page preview. One finger drags it
+ * anywhere on the page, a two-finger pinch resizes it around its centre, and the
+ * corner dot resizes from the bottom-right.
+ *
+ * The gesture coroutines run for as long as the finger is down while the box
+ * recomposes underneath them, so they must read the placement through
+ * [rememberUpdatedState] — capturing the parameters directly would freeze the
+ * box at its gesture-start position.
+ */
 @Composable
 private fun SignatureOverlay(
     sigBitmap: Bitmap,
@@ -321,15 +341,18 @@ private fun SignatureOverlay(
     sigL: Float,
     sigT: Float,
     sigW: Float,
-    onMove: (Float, Float) -> Unit
+    onPlace: (left: Float, top: Float, width: Float) -> Unit
 ) {
     val density = LocalDensity.current
     var boxSize by remember { mutableStateOf(IntSize.Zero) }
+    val placement by rememberUpdatedState(Triple(sigL, sigT, sigW))
     Box(Modifier.fillMaxSize().onSizeChanged { boxSize = it }) {
-        if (boxSize.width > 0) {
+        if (boxSize.width > 0 && boxSize.height > 0) {
             val bw = boxSize.width.toFloat()
             val bh = boxSize.height.toFloat()
-            val sigH = (sigW * (bw / bh) / sigAspect).coerceIn(0.02f, 1f)
+            val boxAspect = bw / bh
+            fun heightFor(w: Float) = (w * boxAspect / sigAspect).coerceIn(0.02f, 1f)
+            val sigH = heightFor(sigW)
             Box(
                 Modifier
                     .offset { IntOffset((sigL * bw).roundToInt(), (sigT * bh).roundToInt()) }
@@ -338,12 +361,17 @@ private fun SignatureOverlay(
                         height = with(density) { (sigH * bh).toDp() }
                     )
                     .border(1.5.dp, MaterialTheme.colorScheme.primary)
-                    .pointerInput(boxSize, sigW, sigAspect) {
-                        detectDragGestures { change, drag ->
-                            change.consume()
-                            val nl = (sigL + drag.x / bw).coerceIn(0f, 1f - sigW)
-                            val nt = (sigT + drag.y / bh).coerceIn(0f, 1f - sigH)
-                            onMove(nl, nt)
+                    .pointerInput(boxSize, sigAspect) {
+                        detectTransformGestures { _, pan, zoom, _ ->
+                            val (l, t, w) = placement
+                            val newW = (w * zoom).coerceIn(MIN_SIG_W, MAX_SIG_W)
+                            val newH = heightFor(newW)
+                            // Keep the centre fixed while pinching, then apply the pan.
+                            val nl = (l - (newW - w) / 2f + pan.x / bw)
+                                .coerceIn(0f, (1f - newW).coerceAtLeast(0f))
+                            val nt = (t - (newH - heightFor(w)) / 2f + pan.y / bh)
+                                .coerceIn(0f, (1f - newH).coerceAtLeast(0f))
+                            onPlace(nl, nt, newW)
                         }
                     }
             ) {
@@ -353,10 +381,35 @@ private fun SignatureOverlay(
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxSize().padding(2.dp)
                 )
+                Box(
+                    Modifier
+                        .align(Alignment.BottomEnd)
+                        .offset(x = 8.dp, y = 8.dp)
+                        .size(18.dp)
+                        .background(MaterialTheme.colorScheme.primary, CircleShape)
+                        .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
+                        .pointerInput(boxSize, sigAspect) {
+                            detectDragGestures { change, drag ->
+                                change.consume()
+                                val (l, t, w) = placement
+                                // Growing must keep the box on the page both ways.
+                                val maxW = minOf(
+                                    MAX_SIG_W,
+                                    1f - l,
+                                    (1f - t) * sigAspect / boxAspect
+                                ).coerceAtLeast(MIN_SIG_W)
+                                val newW = (w + drag.x / bw).coerceIn(MIN_SIG_W, maxW)
+                                onPlace(l, t, newW)
+                            }
+                        }
+                )
             }
         }
     }
 }
+
+private const val MIN_SIG_W = 0.12f
+private const val MAX_SIG_W = 0.9f
 
 @Composable
 private fun SignaturePadDialog(

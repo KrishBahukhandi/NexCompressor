@@ -5,40 +5,43 @@ package com.nexcompress.app.domain.model
  *
  * The percentage in each [badge] is the marketing-facing "compression profile"
  * exactly as written in the PRD wireframe. Internally:
- *  - [quality]     is the JPEG quality (0–100) used when re-encoding rasterized
- *                  page imagery inside the rebuilt PDF.
- *  - [renderScale] down-samples page dimensions (DPI scaling) to trade visual
- *                  fidelity for output size.
+ *  - [quality]        is the JPEG quality (0–100) applied when re-encoding the
+ *                     images embedded in the document.
+ *  - [maxImageEdgePx] caps the longest edge of embedded images (oversized scans
+ *                     and photos are down-sampled to this before re-encoding).
+ *                     Also used as the page raster size by the fallback pipeline
+ *                     for documents PDFBox cannot parse.
  *
- * Lower profiles => smaller output files.
+ * Text and vector content are never rasterized, so they stay sharp at any zoom;
+ * lower profiles only squeeze the imagery harder.
  */
 enum class CompressionProfile(
     val title: String,
     val subtitle: String,
     val badge: String,
     val quality: Int,
-    val renderScale: Float
+    val maxImageEdgePx: Int
 ) {
     RECOMMENDED(
         title = "Recommended Savings",
-        subtitle = "Best operational balance for text & layout preservation",
+        subtitle = "Recompresses photos & scans; text stays sharp",
         badge = "65% Compression",
-        quality = 65,
-        renderScale = 0.75f
+        quality = 58,
+        maxImageEdgePx = 1600
     ),
     BALANCED(
         title = "Balanced Extraction",
-        subtitle = "Aggressive scaling; ideal for pure text sheets",
+        subtitle = "Strongest squeeze on imagery for the smallest file",
         badge = "40% Compression",
-        quality = 40,
-        renderScale = 0.55f
+        quality = 42,
+        maxImageEdgePx = 1200
     ),
     HIGH_FIDELITY(
         title = "High-Fidelity Retain",
-        subtitle = "Minimal compression footprint for image-heavy files",
+        subtitle = "Gentle image recompression, near-original quality",
         badge = "90% Compression",
-        quality = 90,
-        renderScale = 1.0f
+        quality = 85,
+        maxImageEdgePx = 2400
     );
 
     companion object {

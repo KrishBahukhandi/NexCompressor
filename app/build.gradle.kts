@@ -101,4 +101,8 @@ dependencies {
 
     // Tooling
     debugImplementation(libs.androidx.ui.tooling)
+
+    // On-device verification of the PDF processors
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.runner)
 }

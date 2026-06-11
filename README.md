@@ -21,7 +21,7 @@ Compress PDFs, convert images, and turn files between formats — almost entirel
 ### On-device (offline, native — no network)
 | Tool | Description |
 |------|-------------|
-| **Compress PDF** | Re-rasterize & re-encode pages at Recommended / Balanced / High-Fidelity profiles (never produces a larger file). |
+| **Compress PDF** | Recompresses the images inside the document (Recommended / Balanced / High-Fidelity profiles) while text & vectors stay sharp — never produces a larger file. |
 | **Convert Images** | Any image (JPG/PNG/HEIC/BMP/WebP) → **JPG / PNG / WebP**, batch up to 5, per-file rename, drag-to-reorder. |
 | **PDF → Images** | Export every PDF page as JPG / PNG / WebP. |
 | **Images → PDF** | Combine photos into a single multi-page PDF (reorderable pages). |
