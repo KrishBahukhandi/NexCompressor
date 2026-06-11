@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import androidx.annotation.RequiresApi
 import androidx.core.content.FileProvider
 import com.nexcompress.app.domain.model.FileType
 import com.nexcompress.app.domain.model.PickedFile
@@ -69,6 +70,8 @@ class FileStorageManager(private val context: Context) {
         }
     }
 
+    // Only reached through the SDK_INT >= Q branch in writeOutput.
+    @RequiresApi(Build.VERSION_CODES.Q)
     private fun writeViaMediaStore(
         displayName: String,
         mimeType: String,
