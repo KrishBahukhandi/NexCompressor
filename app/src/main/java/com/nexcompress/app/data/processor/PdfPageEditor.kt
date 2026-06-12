@@ -50,7 +50,7 @@ class PdfPageEditor(
             ops.forEach { op ->
                 if (op.sourceIndex in 0 until count) {
                     val page = src.getPage(op.sourceIndex)
-                    val imported = out.importPage(page)
+                    val imported = PdfFiles.importPagePreserving(out, page)
                     imported.rotation = (page.rotation + op.rotation) % 360
                 }
             }

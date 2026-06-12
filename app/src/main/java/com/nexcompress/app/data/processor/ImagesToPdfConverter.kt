@@ -2,28 +2,32 @@ package com.nexcompress.app.data.processor
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import com.nexcompress.app.domain.model.CompressionException
 import com.nexcompress.app.domain.model.CompressionResult
 import com.nexcompress.app.domain.model.FileType
 import com.nexcompress.app.domain.model.ImageBatchItem
 import com.nexcompress.app.domain.model.OutputItem
+import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.pdmodel.PDPage
+import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
+import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
+import com.tom_roush.pdfbox.pdmodel.graphics.image.JPEGFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
-import java.io.IOException
 import kotlin.coroutines.coroutineContext
 
 /**
  * Images → PDF. Combines the selected images (in list order) into a single
- * multi-page PDF, one image per page. Each page is re-encoded as JPEG at the
- * chosen quality to keep the document small. Guarded against OOM / decode
- * failures; a single bad image is skipped rather than aborting the whole job.
+ * multi-page PDF, one image per page. Photos are decoded upright (EXIF applied)
+ * and embedded as JPEG streams at the chosen quality, so the quality slider
+ * directly controls the output size. A single bad image is skipped rather than
+ * aborting the whole job.
  */
 class ImagesToPdfConverter(
     private val context: Context,
@@ -39,12 +43,12 @@ class ImagesToPdfConverter(
             throw CompressionException("No images were selected.")
         }
 
-        val document = PdfDocument()
+        val document = PDDocument()
         try {
             var pagesAdded = 0
-            items.forEachIndexed { index, item ->
+            for (item in items) {
                 coroutineContext.ensureActive() // cooperative cancellation
-                if (addImagePage(document, item, quality, index)) pagesAdded++
+                if (addImagePage(document, item, quality)) pagesAdded++
             }
             if (pagesAdded == 0) {
                 throw CompressionException(
@@ -54,7 +58,7 @@ class ImagesToPdfConverter(
 
             val outName = storage.composeOutputName(outputBaseName, "pdf")
             val saved = storage.writeOutput(outName, "application/pdf") { os ->
-                document.writeTo(os)
+                document.save(os)
             }
 
             // A conversion produces a new asset rather than savings (original == output).
@@ -80,20 +84,14 @@ class ImagesToPdfConverter(
         }
     }
 
-    private fun addImagePage(
-        document: PdfDocument,
-        item: ImageBatchItem,
-        quality: Int,
-        index: Int
-    ): Boolean {
+    private fun addImagePage(document: PDDocument, item: ImageBatchItem, quality: Int): Boolean {
         val uri = Uri.parse(item.source.uriString)
         var source: Bitmap? = null
         var flattened: Bitmap? = null
-        var pageBitmap: Bitmap? = null
         try {
-            source = decodeSampled(uri) ?: return false
+            source = ImageDecoding.decodeUpright(context, uri, MAX_DIMENSION) ?: return false
 
-            // PDF pages are JPEG-encoded, so flatten any transparency onto white.
+            // Pages embed JPEG, so flatten any transparency onto white.
             val toEncode = if (source.hasAlpha()) {
                 flattenOntoWhite(source).also { flattened = it }
             } else {
@@ -104,34 +102,24 @@ class ImagesToPdfConverter(
                 toEncode.compress(Bitmap.CompressFormat.JPEG, quality, baos)
                 baos.toByteArray()
             }
-            pageBitmap = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size) ?: return false
+            if (jpeg.isEmpty()) return false
 
-            val pageInfo = PdfDocument.PageInfo
-                .Builder(pageBitmap.width, pageBitmap.height, index + 1)
-                .create()
-            val page = document.startPage(pageInfo)
-            page.canvas.drawBitmap(pageBitmap, 0f, 0f, null)
-            document.finishPage(page)
+            val w = toEncode.width.toFloat()
+            val h = toEncode.height.toFloat()
+            val page = PDPage(PDRectangle(w, h))
+            document.addPage(page)
+            val image = JPEGFactory.createFromStream(document, ByteArrayInputStream(jpeg))
+            PDPageContentStream(document, page).use { cs ->
+                cs.drawImage(image, 0f, 0f, w, h)
+            }
             return true
+        } catch (oom: OutOfMemoryError) {
+            return false
+        } catch (e: Exception) {
+            return false
         } finally {
-            pageBitmap?.recycle()
             flattened?.recycle()
             source?.recycle()
-        }
-    }
-
-    private fun decodeSampled(uri: Uri): Bitmap? {
-        val resolver = context.contentResolver
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        val boundsStream = resolver.openInputStream(uri) ?: return null
-        boundsStream.use { BitmapFactory.decodeStream(it, null, bounds) }
-
-        val options = BitmapFactory.Options().apply {
-            inSampleSize = computeInSampleSize(bounds.outWidth, bounds.outHeight)
-            inPreferredConfig = Bitmap.Config.ARGB_8888
-        }
-        return resolver.openInputStream(uri)?.use {
-            BitmapFactory.decodeStream(it, null, options)
         }
     }
 
@@ -142,17 +130,6 @@ class ImagesToPdfConverter(
             drawBitmap(src, 0f, 0f, null)
         }
         return out
-    }
-
-    private fun computeInSampleSize(width: Int, height: Int): Int {
-        if (width <= 0 || height <= 0) return 1
-        var sample = 1
-        var w = width
-        var h = height
-        while (w / 2 >= MAX_DIMENSION || h / 2 >= MAX_DIMENSION) {
-            w /= 2; h /= 2; sample *= 2
-        }
-        return sample
     }
 
     companion object {

@@ -1,7 +1,6 @@
 package com.nexcompress.app.ui.imagestudio
 
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.net.Uri
 import androidx.compose.foundation.Canvas
@@ -56,6 +55,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,6 +71,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.nexcompress.app.data.processor.ImageDecoding
 import com.nexcompress.app.domain.model.CropRect
 import com.nexcompress.app.domain.model.ImageEditSpec
 import com.nexcompress.app.domain.model.ImageFormat
@@ -334,18 +335,23 @@ private fun CropArea(
 ) {
     var size by remember { mutableStateOf(Size.Zero) }
     var active by remember { mutableIntStateOf(-1) }
+    // The gesture coroutine outlives recompositions; reading the parameter
+    // directly would freeze the frame at its gesture-start rectangle.
+    val currentCrop by rememberUpdatedState(crop)
     Canvas(
         modifier
             .onSizeChanged { size = Size(it.width.toFloat(), it.height.toFloat()) }
             .pointerInput(Unit) {
                 detectDragGestures(
-                    onDragStart = { pos -> active = hitTest(pos, crop, size) },
+                    onDragStart = { pos -> active = hitTest(pos, currentCrop, size) },
                     onDragEnd = { active = -1 },
                     onDragCancel = { active = -1 }
                 ) { change, drag ->
                     change.consume()
                     if (size.width <= 0f || size.height <= 0f) return@detectDragGestures
-                    onCropChange(updateCrop(crop, active, drag.x / size.width, drag.y / size.height))
+                    onCropChange(
+                        updateCrop(currentCrop, active, drag.x / size.width, drag.y / size.height)
+                    )
                 }
             }
     ) {
@@ -425,21 +431,9 @@ private fun loadPreview(
     flipH: Boolean,
     flipV: Boolean
 ): Bitmap? {
-    val resolver = context.contentResolver
-    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    val boundsStream = resolver.openInputStream(uri) ?: return null
-    boundsStream.use { BitmapFactory.decodeStream(it, null, bounds) }
-
-    var sample = 1
-    var w = bounds.outWidth
-    var h = bounds.outHeight
-    while (w / 2 >= PREVIEW_LONG_EDGE || h / 2 >= PREVIEW_LONG_EDGE) { w /= 2; h /= 2; sample *= 2 }
-    val options = BitmapFactory.Options().apply {
-        inSampleSize = sample
-        inPreferredConfig = Bitmap.Config.ARGB_8888
-    }
-    val decoded = resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
-        ?: return null
+    // EXIF-corrected decode, so the preview (and the crop frame drawn over it)
+    // matches what ImageEditor exports.
+    val decoded = ImageDecoding.decodeUpright(context, uri, PREVIEW_LONG_EDGE) ?: return null
 
     val r = ((rotation % 360) + 360) % 360
     if (r == 0 && !flipH && !flipV) return decoded

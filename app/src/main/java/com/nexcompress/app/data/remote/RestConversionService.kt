@@ -1,11 +1,8 @@
 package com.nexcompress.app.data.remote
 
 import android.content.Context
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.Typeface
-import android.graphics.pdf.PdfDocument
 import android.net.Uri
+import android.util.Base64
 import android.util.Log
 import com.nexcompress.app.BuildConfig
 import com.nexcompress.app.data.processor.FileStorageManager
@@ -16,7 +13,6 @@ import com.nexcompress.app.domain.model.OnlineConversion
 import com.nexcompress.app.domain.model.OutputItem
 import com.nexcompress.app.domain.model.PickedFile
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.IOException
@@ -24,6 +20,7 @@ import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
 import java.net.URL
+import java.net.URLEncoder
 
 /**
  * Provider-agnostic conversion client modelled on a ConvertAPI-style contract:
@@ -31,9 +28,9 @@ import java.net.URL
  *     -> JSON { "Files": [ { "Url": "https://.../out.ext" } ] }
  *   GET  {Url}  -> the converted file bytes
  *
- * Endpoint + key come from BuildConfig (see app/build.gradle.kts). With no key,
- * it runs a built-in DEMO mode that simulates the round-trip and produces a
- * clearly-labelled placeholder PDF so the whole flow is testable offline-of-key.
+ * Endpoint + key come from BuildConfig (see app/build.gradle.kts). With no key
+ * configured, the conversions without an on-device engine fail fast with a
+ * clear message instead of producing placeholder output.
  */
 class RestConversionService(
     private val context: Context,
@@ -50,7 +47,14 @@ class RestConversionService(
         input: PickedFile,
         conversion: OnlineConversion
     ): CompressionResult = withContext(Dispatchers.IO) {
-        if (isConfigured) realConvert(input, conversion) else demoConvert(input, conversion)
+        if (!isConfigured) {
+            throw CompressionException(
+                "${conversion.title} needs the online conversion service, which isn't " +
+                    "set up in this build. (Most conversions run fully on-device — " +
+                    "this one has no faithful offline equivalent.)"
+            )
+        }
+        realConvert(input, conversion)
     }
 
     // ---- Real network conversion -------------------------------------------
@@ -58,7 +62,10 @@ class RestConversionService(
     private fun realConvert(input: PickedFile, conversion: OnlineConversion): CompressionResult {
         val srcUri = Uri.parse(input.uriString)
         val fromExt = extensionOf(input.displayName).ifBlank { conversion.defaultSourceExt }
-        val endpoint = "$baseUrl/convert/$fromExt/to/${conversion.targetExt}?Secret=$apiKey"
+        // StoreFile=true makes the service reply with a download Url; without it
+        // the converted file comes back inline as base64 FileData (handled too).
+        val endpoint = "$baseUrl/convert/$fromExt/to/${conversion.targetExt}" +
+            "?Secret=${URLEncoder.encode(apiKey, "UTF-8")}&StoreFile=true"
         val boundary = "----NexCompress${System.currentTimeMillis()}"
 
         val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
@@ -94,7 +101,7 @@ class RestConversionService(
             }
 
             val body = connection.inputStream.bufferedReader().use { it.readText() }
-            val resultUrl = parseResultUrl(body)
+            val converted = parseResultFile(body)
                 ?: throw CompressionException("The conversion service returned an unexpected response.")
 
             val outName = storage.composeOutputName(
@@ -102,7 +109,11 @@ class RestConversionService(
                 conversion.targetExt
             )
             val saved = storage.writeOutput(outName, conversion.targetMime) { os ->
-                download(resultUrl, os)
+                when {
+                    converted.url != null -> download(converted.url, os)
+                    converted.base64Data != null ->
+                        os.write(Base64.decode(converted.base64Data, Base64.DEFAULT))
+                }
             }
 
             val type = if (conversion.producesPdf) FileType.PDF else FileType.DOCUMENT
@@ -128,12 +139,14 @@ class RestConversionService(
         }
     }
 
-    private fun parseResultUrl(body: String): String? = try {
-        JSONObject(body)
-            .optJSONArray("Files")
-            ?.optJSONObject(0)
-            ?.optString("Url")
-            ?.takeIf { it.isNotBlank() }
+    /** A converted file is delivered either by download Url or inline base64. */
+    private data class ConvertedFile(val url: String?, val base64Data: String?)
+
+    private fun parseResultFile(body: String): ConvertedFile? = try {
+        val first = JSONObject(body).optJSONArray("Files")?.optJSONObject(0)
+        val url = first?.optString("Url")?.takeIf { it.isNotBlank() }
+        val data = first?.optString("FileData")?.takeIf { it.isNotBlank() }
+        if (url == null && data == null) null else ConvertedFile(url, data)
     } catch (e: Exception) {
         null
     }
@@ -159,77 +172,6 @@ class RestConversionService(
         429 -> "Conversion rate limit reached — please try again shortly."
         in 500..599 -> "The conversion service is temporarily unavailable. Try again later."
         else -> "The conversion failed (server returned $code)."
-    }
-
-    // ---- Demo mode ----------------------------------------------------------
-
-    private suspend fun demoConvert(
-        input: PickedFile,
-        conversion: OnlineConversion
-    ): CompressionResult {
-        delay(1800) // simulate upload + server-side conversion
-        val outName = storage.composeOutputName(
-            "${storage.baseNameOf(input.displayName)}_demo",
-            "pdf"
-        )
-        val saved = storage.writeOutput(outName, "application/pdf") { os ->
-            writeDemoPdf(os, input.displayName, conversion)
-        }
-        return CompressionResult(
-            listOf(
-                OutputItem(
-                    displayName = outName,
-                    originalSize = saved.sizeBytes,
-                    outputSize = saved.sizeBytes,
-                    uri = saved.uri.toString(),
-                    type = FileType.PDF
-                )
-            )
-        )
-    }
-
-    private fun writeDemoPdf(out: OutputStream, sourceName: String, conversion: OnlineConversion) {
-        val document = PdfDocument()
-        try {
-            val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create()
-            val page = document.startPage(pageInfo)
-            val canvas = page.canvas
-            canvas.drawColor(Color.WHITE)
-
-            val title = Paint().apply {
-                color = Color.BLACK
-                textSize = 20f
-                typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
-                isAntiAlias = true
-            }
-            val body = Paint().apply {
-                color = Color.DKGRAY
-                textSize = 13f
-                typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
-                isAntiAlias = true
-            }
-            var y = 90f
-            canvas.drawText("NexCompress — Demo Conversion", 48f, y, title); y += 40f
-            val lines = listOf(
-                "This is a placeholder produced in DEMO mode.",
-                "",
-                "Requested: ${conversion.title}",
-                "Source file: $sourceName",
-                "",
-                "No conversion API key is configured, so the file was not sent",
-                "to any server. Add CONVERT_API_KEY (and optionally",
-                "CONVERT_BASE_URL) in gradle.properties to enable real online",
-                "conversions through your service."
-            )
-            for (line in lines) {
-                canvas.drawText(line, 48f, y, body)
-                y += 22f
-            }
-            document.finishPage(page)
-            document.writeTo(out)
-        } finally {
-            document.close()
-        }
     }
 
     private fun extensionOf(name: String): String =

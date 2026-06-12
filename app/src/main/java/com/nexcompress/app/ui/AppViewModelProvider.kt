@@ -33,6 +33,7 @@ object AppViewModelProvider {
                 pdfSplitter = container.pdfSplitter,
                 pdfProtector = container.pdfProtector,
                 pdfSigner = container.pdfSigner,
+                officeConverter = container.officeConverter,
                 onlineConversionService = container.onlineConversionService
             )
         }

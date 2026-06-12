@@ -39,12 +39,15 @@ engine — text stays selectable and **nothing is uploaded**.
 | **Protect PDF** | Lock a PDF with a password (AES/standard security) or unlock a protected one — the password never leaves the device. |
 | **Image Studio** | Rotate, flip, crop (draggable frame) and resize an image, then re-encode to JPG / PNG / WebP. |
 
-### Online (optional, requires a conversion service)
-Office conversions that need a real rendering engine live in the sidebar and are
-**gated behind a connectivity check**: **Word ↔ PDF**, **PowerPoint → PDF**,
-**Excel → PDF**, **PDF → PowerPoint/Excel**. Without an API key they run in a
-built-in **demo mode**; add a key to enable real conversions (see
-[Online conversions](#-online-conversions)).
+### Office conversions (sidebar)
+Four run **fully on-device** (content-faithful; complex layout simplified):
+**Word → PDF**, **Excel → PDF**, **PDF → Word** (text-focused) and
+**PDF → PowerPoint** (each page becomes a full-bleed slide image). Modern
+formats only (.docx/.xlsx) — legacy .doc/.xls need the online service.
+**PowerPoint → PDF** and **PDF → Excel** have no faithful offline equivalent
+and require an optional conversion-service API key (see
+[Online conversions](#-online-conversions)); without one they fail with a
+clear message instead of producing placeholder output.
 
 ### Throughout
 - 📊 **Performance ledger** — cumulative storage reclaimed + file history (Room).
