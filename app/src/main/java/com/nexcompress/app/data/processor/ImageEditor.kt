@@ -122,20 +122,10 @@ class ImageEditor(
         return out
     }
 
-    private fun decodeSampled(uri: Uri): Bitmap? {
-        val resolver = context.contentResolver
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        val boundsStream = resolver.openInputStream(uri) ?: return null
-        boundsStream.use { BitmapFactory.decodeStream(it, null, bounds) }
-
-        val options = BitmapFactory.Options().apply {
-            inSampleSize = computeInSampleSize(bounds.outWidth, bounds.outHeight)
-            inPreferredConfig = Bitmap.Config.ARGB_8888
-        }
-        return resolver.openInputStream(uri)?.use {
-            BitmapFactory.decodeStream(it, null, options)
-        }
-    }
+    /** Memory-capped decode with EXIF applied, so edits start from upright pixels
+     *  exactly like the on-screen preview. */
+    private fun decodeSampled(uri: Uri): Bitmap? =
+        ImageDecoding.decodeUpright(context, uri, MAX_DECODE_DIMENSION)
 
     private fun flattenOntoWhite(src: Bitmap): Bitmap {
         val out = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
@@ -144,17 +134,6 @@ class ImageEditor(
             drawBitmap(src, 0f, 0f, null)
         }
         return out
-    }
-
-    private fun computeInSampleSize(width: Int, height: Int): Int {
-        if (width <= 0 || height <= 0) return 1
-        var sample = 1
-        var w = width
-        var h = height
-        while (w / 2 >= MAX_DECODE_DIMENSION || h / 2 >= MAX_DECODE_DIMENSION) {
-            w /= 2; h /= 2; sample *= 2
-        }
-        return sample
     }
 
     private fun compressFormatFor(format: ImageFormat): Bitmap.CompressFormat = when (format) {

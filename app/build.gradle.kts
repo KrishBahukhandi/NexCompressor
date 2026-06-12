@@ -88,6 +88,9 @@ dependencies {
     // Apache-2.0, fully offline — performs NO network I/O.
     implementation(libs.pdfbox.android)
 
+    // EXIF orientation handling for camera photos (decode-time auto-rotation)
+    implementation(libs.androidx.exifinterface)
+
     // Coroutines (heavy multi-threaded file tasks)
     implementation(libs.kotlinx.coroutines.android)
 

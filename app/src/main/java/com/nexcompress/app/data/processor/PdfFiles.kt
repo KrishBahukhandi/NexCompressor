@@ -3,6 +3,9 @@ package com.nexcompress.app.data.processor
 import android.content.Context
 import android.net.Uri
 import com.nexcompress.app.domain.model.CompressionException
+import com.tom_roush.pdfbox.cos.COSName
+import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.pdmodel.PDPage
 import java.io.File
 
 /**
@@ -26,5 +29,22 @@ internal object PdfFiles {
             out.delete(); throw CompressionException("Couldn't read the selected file.")
         }
         return out
+    }
+
+    /**
+     * [PDDocument.importPage] copies only the page's own dictionary; attributes
+     * inherited from the source page tree (MediaBox/CropBox/Rotate/Resources —
+     * common in scanner output) would silently vanish. This pins the *resolved*
+     * values onto the imported page so it renders identically on its own.
+     */
+    fun importPagePreserving(target: PDDocument, page: PDPage): PDPage {
+        val imported = target.importPage(page)
+        imported.mediaBox = page.mediaBox
+        imported.cropBox = page.cropBox
+        imported.rotation = page.rotation
+        if (imported.cosObject.getDictionaryObject(COSName.RESOURCES) == null) {
+            page.resources?.let { imported.resources = it }
+        }
+        return imported
     }
 }

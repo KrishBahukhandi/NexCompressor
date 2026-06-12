@@ -199,7 +199,7 @@ class PdfSigner(
                         cs.drawImage(image, 0f, 0f, vw, vh)
                     }
                 } else {
-                    out.importPage(src.getPage(i))
+                    PdfFiles.importPagePreserving(out, src.getPage(i))
                 }
             }
 

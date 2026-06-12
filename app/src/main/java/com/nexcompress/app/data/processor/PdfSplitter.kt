@@ -50,7 +50,9 @@ class PdfSplitter(
             val count = src.numberOfPages
             out = PDDocument()
             pageIndices.distinct().sorted().forEach { idx ->
-                if (idx in 0 until count) out.importPage(src.getPage(idx))
+                if (idx in 0 until count) {
+                    PdfFiles.importPagePreserving(out, src.getPage(idx))
+                }
             }
             if (out.numberOfPages == 0) {
                 throw CompressionException("None of the selected pages are in this PDF.")
@@ -98,7 +100,7 @@ class PdfSplitter(
                 coroutineContext.ensureActive()
                 val one = PDDocument()
                 try {
-                    one.importPage(src.getPage(i))
+                    PdfFiles.importPagePreserving(one, src.getPage(i))
                     val outName = storage.composeOutputName("${outputBaseName}_p${i + 1}", "pdf")
                     val saved = storage.writeOutput(outName, "application/pdf") { os -> one.save(os) }
                     items += OutputItem(
