@@ -1,6 +1,5 @@
 package com.nexcompress.app.ui.components
 
-import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -25,6 +24,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.nexcompress.app.data.processor.ImageDecoding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -36,21 +36,9 @@ private fun rememberThumbnail(uriString: String, targetPx: Int = 160): ImageBitm
     LaunchedEffect(uriString) {
         thumbnail = withContext(Dispatchers.IO) {
             runCatching {
-                val uri = Uri.parse(uriString)
-                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                context.contentResolver.openInputStream(uri)?.use {
-                    BitmapFactory.decodeStream(it, null, bounds)
-                }
-                var sample = 1
-                var w = bounds.outWidth
-                var h = bounds.outHeight
-                while (w / 2 >= targetPx && h / 2 >= targetPx) {
-                    w /= 2; h /= 2; sample *= 2
-                }
-                val opts = BitmapFactory.Options().apply { inSampleSize = sample }
-                context.contentResolver.openInputStream(uri)?.use {
-                    BitmapFactory.decodeStream(it, null, opts)
-                }?.asImageBitmap()
+                // EXIF-aware decode so camera photos preview upright.
+                ImageDecoding.decodeUpright(context, Uri.parse(uriString), targetPx)
+                    ?.asImageBitmap()
             }.getOrNull()
         }
     }

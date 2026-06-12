@@ -103,26 +103,9 @@ class ImageConverter(
         }
     }
 
-    /** Two-pass decode: read bounds, then load down-sampled to cap memory use. */
-    private fun decodeSampled(uri: Uri): Bitmap? {
-        val resolver = context.contentResolver
-
-        // Pass 1: bounds only. decodeStream returns null here by design, so the
-        // null-check must be on the STREAM, not on the decode result.
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        val boundsStream = resolver.openInputStream(uri)
-            ?: throw CompressionException("Could not open the selected image.")
-        boundsStream.use { BitmapFactory.decodeStream(it, null, bounds) }
-
-        // Pass 2: real decode at a memory-safe sample size.
-        val options = BitmapFactory.Options().apply {
-            inSampleSize = computeInSampleSize(bounds.outWidth, bounds.outHeight)
-            inPreferredConfig = Bitmap.Config.ARGB_8888
-        }
-        return resolver.openInputStream(uri)?.use {
-            BitmapFactory.decodeStream(it, null, options)
-        }
-    }
+    /** Memory-capped decode with EXIF orientation applied (upright pixels). */
+    private fun decodeSampled(uri: Uri): Bitmap? =
+        ImageDecoding.decodeUpright(context, uri, MAX_DIMENSION)
 
     private fun flattenOntoWhite(src: Bitmap): Bitmap {
         val out = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
@@ -143,19 +126,6 @@ class ImageConverter(
                 @Suppress("DEPRECATION")
                 Bitmap.CompressFormat.WEBP
             }
-    }
-
-    private fun computeInSampleSize(width: Int, height: Int): Int {
-        if (width <= 0 || height <= 0) return 1
-        var sample = 1
-        var w = width
-        var h = height
-        while (w / 2 >= MAX_DIMENSION || h / 2 >= MAX_DIMENSION) {
-            w /= 2
-            h /= 2
-            sample *= 2
-        }
-        return sample
     }
 
     companion object {

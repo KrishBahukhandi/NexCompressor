@@ -61,7 +61,11 @@ class PdfToImageConverter(
         } catch (e: CompressionException) {
             throw e
         } catch (e: SecurityException) {
-            throw CompressionException("Permission to read this document was denied.")
+            // PdfRenderer signals encrypted documents this way too.
+            throw CompressionException(
+                "This PDF couldn't be opened — it may be password-protected " +
+                    "(unlock it first via Protect PDF) or no longer accessible."
+            )
         } catch (e: IOException) {
             throw CompressionException("The PDF appears to be corrupted or unreadable.")
         } catch (e: Exception) {

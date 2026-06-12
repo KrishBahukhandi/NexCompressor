@@ -10,6 +10,7 @@ import com.nexcompress.app.data.processor.FileStorageManager
 import com.nexcompress.app.data.processor.ImageConverter
 import com.nexcompress.app.data.processor.ImageEditor
 import com.nexcompress.app.data.processor.ImagesToPdfConverter
+import com.nexcompress.app.data.processor.OfficeConverter
 import com.nexcompress.app.data.processor.PdfCompressor
 import com.nexcompress.app.data.processor.PdfMerger
 import com.nexcompress.app.data.processor.PdfPageEditor
@@ -58,10 +59,11 @@ class CompressionViewModel(
     private val pdfSplitter: PdfSplitter,
     private val pdfProtector: PdfProtector,
     private val pdfSigner: PdfSigner,
+    private val officeConverter: OfficeConverter,
     private val onlineConversionService: OnlineConversionService
 ) : ViewModel() {
 
-    /** True when a real online endpoint + key are configured (else demo mode). */
+    /** True when a real online endpoint + key are configured. */
     val isOnlineConfigured: Boolean get() = onlineConversionService.isConfigured
 
     // --- PDF selection / config (Screen 2) ---
@@ -323,7 +325,14 @@ class CompressionViewModel(
         val input = withContext(Dispatchers.IO) {
             storage.resolveMetadata(uri, FileType.DOCUMENT)
         }
-        onlineConversionService.convert(input, conversion)
+        // Modern formats convert on-device; legacy binary formats (.doc/.xls)
+        // and the conversions without an offline engine use the online service.
+        val ext = input.displayName.substringAfterLast('.', "").lowercase()
+        if (conversion.offline && ext !in LEGACY_OFFICE_EXTS) {
+            officeConverter.convert(input, conversion)
+        } else {
+            onlineConversionService.convert(input, conversion)
+        }
     }
 
     // ===================== Image Studio (resize / crop / rotate) =====================
@@ -582,5 +591,6 @@ class CompressionViewModel(
         private const val DEFAULT_TXT_FONT_SIZE = 11
         const val MAX_IMAGE_SELECTION = 5
         const val MAX_MERGE_SELECTION = 20
+        private val LEGACY_OFFICE_EXTS = setOf("doc", "xls", "ppt")
     }
 }

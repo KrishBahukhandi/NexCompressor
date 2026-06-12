@@ -342,7 +342,9 @@ fun HomeScreen(
                 onlineConfigured = compressionViewModel.isOnlineConfigured,
                 onOnlineConversion = { conversion ->
                     scope.launch { drawerState.close() }
-                    if (NetworkUtils.isOnline(context)) {
+                    // On-device conversions work offline; only the service-backed
+                    // ones need connectivity.
+                    if (conversion.offline || NetworkUtils.isOnline(context)) {
                         pendingOnline = conversion
                         runCatching { onlinePicker.launch(conversion.sourceMimes.toTypedArray()) }
                     } else {
@@ -916,16 +918,18 @@ private fun NexDrawerSheet(
             )
 
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
-            DrawerSectionLabel(
-                if (onlineConfigured) "More conversions · Online" else "More conversions · Demo"
-            )
+            DrawerSectionLabel("More conversions")
             OnlineConversion.entries.forEach { conversion ->
                 NavigationDrawerItem(
                     label = { Text(conversion.title) },
                     icon = { Icon(Icons.Filled.Description, contentDescription = null) },
                     badge = {
                         Text(
-                            if (onlineConfigured) "Online" else "Demo",
+                            when {
+                                conversion.offline -> "On-device"
+                                onlineConfigured -> "Online"
+                                else -> "Needs key"
+                            },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
