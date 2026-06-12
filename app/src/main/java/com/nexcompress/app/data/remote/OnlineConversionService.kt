@@ -5,13 +5,13 @@ import com.nexcompress.app.domain.model.OnlineConversion
 import com.nexcompress.app.domain.model.PickedFile
 
 /**
- * Boundary for the online Office conversions. The app depends only on this
- * interface, so the concrete provider (or a self-hosted endpoint) is swappable
- * and the conversions can be stubbed/demoed without a real backend.
+ * Boundary for the service-backed Office conversions (the ones without an
+ * on-device engine). The app depends only on this interface, so the concrete
+ * provider (or a self-hosted endpoint) is swappable.
  */
 interface OnlineConversionService {
 
-    /** True when a real endpoint + API key are configured (else demo mode). */
+    /** True when a real endpoint + API key are configured. */
     val isConfigured: Boolean
 
     /**
