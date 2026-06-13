@@ -1,6 +1,7 @@
 package com.nexcompress.app.data.processor
 
 import android.content.Context
+import android.net.Uri
 import com.nexcompress.app.data.processor.OoxmlSupport.escapeXml
 import com.nexcompress.app.data.processor.OoxmlSupport.putPart
 import com.nexcompress.app.domain.model.CompressionException
@@ -13,6 +14,7 @@ import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.encryption.InvalidPasswordException
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import com.tom_roush.pdfbox.text.TextPosition
+import java.io.File
 import java.io.StringWriter
 import java.util.zip.ZipOutputStream
 import kotlin.math.roundToInt
@@ -20,12 +22,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * PDF → Word (.docx), fully on-device and text-focused.
+ * PDF → Word (.docx), fully on-device.
  *
- * Extracts the document text in reading order (with per-line font sizes),
- * maps visibly larger lines to Word heading styles, and writes a clean,
- * valid .docx with a page break per source page. Layout, images and exact
- * fonts are not reproduced — the output is meant for editing the content.
+ * For pages with an embedded text layer it extracts the text in reading order
+ * (with per-line font sizes). For scanned / image-only pages it falls back to
+ * on-device OCR ([OcrEngine]) so even scans become editable text. Visibly larger
+ * lines map to Word heading styles; the result is a clean, valid .docx with a
+ * page break per source page. Layout, images and exact fonts are not reproduced.
  */
 class PdfToDocxConverter(
     private val context: Context,
@@ -39,10 +42,10 @@ class PdfToDocxConverter(
             val staged = OoxmlSupport.stage(context, input.uriString, "pdf2docx_")
             try {
                 val pages = extractLines(staged)
-                if (pages.sumOf { it.size } == 0) {
+                if (pages.all { page -> page.none { it.text.isNotBlank() } }) {
                     throw CompressionException(
-                        "No selectable text found in this PDF — it looks scanned. " +
-                            "OCR isn't supported yet."
+                        "We couldn't find any text in this PDF, even with OCR. " +
+                            "The pages may be blank or too low-quality to read."
                     )
                 }
 
@@ -80,53 +83,113 @@ class PdfToDocxConverter(
     // Extraction                                                         //
     // ------------------------------------------------------------------ //
 
-    private fun extractLines(staged: java.io.File): List<List<Line>> {
+    private fun extractLines(staged: File): List<List<Line>> {
         PDDocument.load(staged, MemoryUsageSetting.setupTempFileOnly()).use { doc ->
             if (doc.isEncrypted) {
                 throw CompressionException(
                     "This PDF is password-protected. Unlock it first via Protect PDF."
                 )
             }
-            val pages = mutableListOf<List<Line>>()
-            val current = mutableListOf<Line>()
-            val lineText = StringBuilder()
-            var lineSizeSum = 0f
-            var lineGlyphs = 0
+            val pages = extractEmbeddedText(doc)
 
-            val stripper = object : PDFTextStripper() {
-                fun flushLine() {
-                    val text = lineText.toString().trimEnd()
-                    if (text.isNotBlank()) {
-                        val avg = if (lineGlyphs > 0) lineSizeSum / lineGlyphs else 0f
-                        current.add(Line(text, avg))
-                    } else if (text.isEmpty() && current.isNotEmpty()) {
-                        current.add(Line("", 0f)) // preserve vertical gaps as blanks
-                    }
-                    lineText.setLength(0); lineSizeSum = 0f; lineGlyphs = 0
+            // Any page with no embedded text layer is scanned/image-only → OCR it.
+            val scannedPages = pages.indices.filter { idx ->
+                pages[idx].none { it.text.isNotBlank() }
+            }
+            if (scannedPages.isNotEmpty()) {
+                ocrPages(staged, doc, scannedPages, pages)
+            }
+            return pages
+        }
+    }
+
+    /** Per-page lines from the embedded text layer (empty list for scanned pages). */
+    private fun extractEmbeddedText(doc: PDDocument): MutableList<MutableList<Line>> {
+        val pages = mutableListOf<MutableList<Line>>()
+        val current = mutableListOf<Line>()
+        val lineText = StringBuilder()
+        var lineSizeSum = 0f
+        var lineGlyphs = 0
+
+        val stripper = object : PDFTextStripper() {
+            fun flushLine() {
+                val text = lineText.toString().trimEnd()
+                if (text.isNotBlank()) {
+                    val avg = if (lineGlyphs > 0) lineSizeSum / lineGlyphs else 0f
+                    current.add(Line(text, avg))
+                } else if (text.isEmpty() && current.isNotEmpty()) {
+                    current.add(Line("", 0f)) // preserve vertical gaps as blanks
                 }
+                lineText.setLength(0); lineSizeSum = 0f; lineGlyphs = 0
+            }
 
-                override fun writeString(text: String, positions: List<TextPosition>) {
-                    lineText.append(text)
-                    for (pos in positions) {
-                        val s = if (pos.fontSizeInPt > 0f) pos.fontSizeInPt else pos.yScale
-                        lineSizeSum += s
-                        lineGlyphs++
-                    }
-                }
-
-                override fun writeLineSeparator() {
-                    flushLine()
-                }
-
-                override fun endPage(page: com.tom_roush.pdfbox.pdmodel.PDPage) {
-                    flushLine()
-                    pages.add(current.toList())
-                    current.clear()
+            override fun writeString(text: String, positions: List<TextPosition>) {
+                lineText.append(text)
+                for (pos in positions) {
+                    val s = if (pos.fontSizeInPt > 0f) pos.fontSizeInPt else pos.yScale
+                    lineSizeSum += s
+                    lineGlyphs++
                 }
             }
-            stripper.sortByPosition = true
-            stripper.writeText(doc, StringWriter()) // drives extraction; output unused
-            return pages
+
+            override fun writeLineSeparator() {
+                flushLine()
+            }
+
+            override fun endPage(page: com.tom_roush.pdfbox.pdmodel.PDPage) {
+                flushLine()
+                pages.add(current.toMutableList())
+                current.clear()
+            }
+        }
+        stripper.sortByPosition = true
+        stripper.writeText(doc, StringWriter()) // drives extraction; output unused
+        return pages
+    }
+
+    /**
+     * Renders each [scannedPages] index and replaces its (empty) entry with
+     * OCR'd lines. A line's font size is estimated from its bounding-box height
+     * relative to the page so heading detection still applies to scans.
+     */
+    private fun ocrPages(
+        staged: File,
+        doc: PDDocument,
+        scannedPages: List<Int>,
+        pages: MutableList<MutableList<Line>>
+    ) {
+        var renderer: PdfPageRenderer? = null
+        try {
+            renderer = PdfPageRenderer(context, Uri.fromFile(staged))
+            for (idx in scannedPages) {
+                val bmp = renderer.renderPage(idx, OCR_RENDER_LONG_EDGE) ?: continue
+                try {
+                    val page = doc.getPage(idx)
+                    val rotation = ((page.rotation % 360) + 360) % 360
+                    val visualHeightPt =
+                        if (rotation == 90 || rotation == 270) page.cropBox.width
+                        else page.cropBox.height
+                    val ocrLines = mutableListOf<Line>()
+                    for (block in OcrEngine.recognizeBlocks(bmp)) {
+                        for (ocr in block) {
+                            val sizePt = if (bmp.height > 0 && ocr.heightPx > 0 && visualHeightPt > 0f) {
+                                // Box height ≈ 1.3× the cap-height; scale toward point size.
+                                (ocr.heightPx * visualHeightPt / bmp.height * 0.75f)
+                                    .coerceIn(6f, 48f)
+                            } else {
+                                0f
+                            }
+                            ocrLines.add(Line(ocr.text, sizePt))
+                        }
+                        ocrLines.add(Line("", 0f)) // paragraph gap between blocks
+                    }
+                    if (ocrLines.any { it.text.isNotBlank() }) pages[idx] = ocrLines
+                } finally {
+                    bmp.recycle()
+                }
+            }
+        } finally {
+            runCatching { renderer?.close() }
         }
     }
 
@@ -229,5 +292,8 @@ class PdfToDocxConverter(
     companion object {
         private const val DOCX_MIME =
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+        /** Render resolution (longest edge, px) for OCR'ing a scanned page. */
+        private const val OCR_RENDER_LONG_EDGE = 2200
     }
 }

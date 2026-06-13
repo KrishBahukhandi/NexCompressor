@@ -91,6 +91,10 @@ dependencies {
     // EXIF orientation handling for camera photos (decode-time auto-rotation)
     implementation(libs.androidx.exifinterface)
 
+    // On-device OCR (Google ML Kit, bundled Latin model) — reads text from
+    // scanned/image-only PDFs for PDF → Word. Inference runs locally; no upload.
+    implementation(libs.mlkit.text.recognition)
+
     // Coroutines (heavy multi-threaded file tasks)
     implementation(libs.kotlinx.coroutines.android)
 

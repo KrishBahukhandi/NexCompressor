@@ -3,7 +3,10 @@ package com.nexcompress.app
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Typeface
 import android.net.Uri
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -27,7 +30,6 @@ import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
 import com.tom_roush.pdfbox.pdmodel.graphics.image.JPEGFactory
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import java.io.File
-import java.util.Random
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
@@ -322,18 +324,51 @@ class OfficeConvertersTest {
         }
     }
 
-    /** A scanned/no-text PDF must give the explicit friendly error, not garbage. */
+    /** A scanned/image-only PDF must be OCR'd into real editable text on-device. */
     @Test
-    fun pdfToDocx_imageOnlyPdf_reportsNoTextFound() = runBlocking<Unit> {
-        val pdf = buildImageOnlyPdf()
+    fun pdfToDocx_scannedPdf_ocrsTextIntoDocx() = runBlocking<Unit> {
+        val pdf = buildScannedTextPdf(listOf("Invoice Summary", "Total Amount Due"))
         try {
-            PdfToDocxConverter(context, storage).convert(pickedFile(pdf), "test_scanned")
-            fail("expected a CompressionException for an image-only PDF")
+            val item = PdfToDocxConverter(context, storage)
+                .convert(pickedFile(pdf), "test_scanned_ocr")
+                .items.single().also { outputs.add(it) }
+            assertTrue(item.displayName.endsWith(".docx"))
+
+            val staged = stage(item.uri)
+            try {
+                ZipFile(staged).use { zip ->
+                    val docXml = zip.getInputStream(zip.getEntry("word/document.xml"))
+                        .use { it.readBytes().toString(Charsets.UTF_8) }
+                        .lowercase()
+                    // OCR should recover most of the rendered words (allow a miss
+                    // or two so the test isn't brittle to a single glyph).
+                    val recovered = listOf("invoice", "summary", "total", "amount", "due")
+                        .count { docXml.contains(it) }
+                    assertTrue(
+                        "OCR recovered too few words ($recovered/5) from the scan",
+                        recovered >= 3
+                    )
+                }
+            } finally {
+                staged.delete()
+            }
+        } finally {
+            pdf.delete()
+        }
+    }
+
+    /** A genuinely blank/illegible image-only PDF still gives the friendly error. */
+    @Test
+    fun pdfToDocx_blankImagePdf_reportsNoText() = runBlocking<Unit> {
+        val pdf = buildBlankImagePdf()
+        try {
+            PdfToDocxConverter(context, storage).convert(pickedFile(pdf), "test_blank")
+            fail("expected a CompressionException for a blank image-only PDF")
         } catch (e: CompressionException) {
             assertTrue(
-                "error should mention scanned/OCR/no text, was: ${e.message}",
-                (e.message ?: "").contains("scanned", ignoreCase = true) ||
-                    (e.message ?: "").contains("selectable text", ignoreCase = true)
+                "error should explain no text was found, was: ${e.message}",
+                (e.message ?: "").contains("any text", ignoreCase = true) ||
+                    (e.message ?: "").contains("blank", ignoreCase = true)
             )
         } finally {
             pdf.delete()
@@ -543,24 +578,50 @@ class OfficeConvertersTest {
         )
     }
 
-    /** A single-page PDF whose only content is an image — no text layer. */
-    private fun buildImageOnlyPdf(): File {
+    /**
+     * A single-page PDF with NO text layer: the words are rasterized onto a
+     * bitmap (black on white) and embedded as an image, like a real scan. The
+     * text is only recoverable via OCR.
+     */
+    private fun buildScannedTextPdf(lines: List<String>): File {
+        val w = 1000
+        val h = 1294 // ~Letter aspect
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        canvas.drawColor(Color.WHITE)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            textSize = 70f
+            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
+        }
+        var y = 220f
+        for (line in lines) {
+            canvas.drawText(line, 90f, y, paint)
+            y += 150f
+        }
+        return embedBitmapPdf(bmp, "scanned")
+    }
+
+    /** A single-page PDF whose only content is a blank white image (no text). */
+    private fun buildBlankImagePdf(): File {
+        val bmp = Bitmap.createBitmap(800, 1000, Bitmap.Config.ARGB_8888)
+        bmp.eraseColor(Color.WHITE)
+        return embedBitmapPdf(bmp, "blank")
+    }
+
+    /** Embeds [bmp] full-bleed (minus a margin) as the only content of a PDF page. */
+    private fun embedBitmapPdf(bmp: Bitmap, prefix: String): File {
         val doc = PDDocument()
         try {
             val page = PDPage(PDRectangle.LETTER)
             doc.addPage(page)
-            val bmp = Bitmap.createBitmap(600, 400, Bitmap.Config.ARGB_8888)
-            val rnd = Random(3)
-            val px = IntArray(600 * 400) {
-                Color.rgb(rnd.nextInt(256), rnd.nextInt(256), rnd.nextInt(256))
-            }
-            bmp.setPixels(px, 0, 600, 0, 0, 600, 400)
-            val image = JPEGFactory.createFromImage(doc, bmp, 0.8f)
+            val image = JPEGFactory.createFromImage(doc, bmp, 0.9f)
             bmp.recycle()
+            val box = PDRectangle.LETTER
             PDPageContentStream(doc, page).use { cs ->
-                cs.drawImage(image, 56f, 200f, 480f, 320f)
+                cs.drawImage(image, 18f, 18f, box.width - 36f, box.height - 36f)
             }
-            val f = File(context.cacheDir, "imageonly_${System.nanoTime()}.pdf")
+            val f = File(context.cacheDir, "${prefix}_${System.nanoTime()}.pdf")
             doc.save(f)
             return f
         } finally {

@@ -41,9 +41,11 @@ engine — text stays selectable and **nothing is uploaded**.
 
 ### Office conversions (sidebar)
 Four run **fully on-device** (content-faithful; complex layout simplified):
-**Word → PDF**, **Excel → PDF**, **PDF → Word** (text-focused) and
-**PDF → PowerPoint** (each page becomes a full-bleed slide image). Modern
-formats only (.docx/.xlsx) — legacy .doc/.xls need the online service.
+**Word → PDF**, **Excel → PDF**, **PDF → Word** (text-focused, with on-device
+**OCR** via Google ML Kit so scanned/image-only PDFs convert too — the model is
+bundled, nothing is uploaded) and **PDF → PowerPoint** (each page becomes a
+full-bleed slide image). Modern formats only (.docx/.xlsx) — legacy .doc/.xls
+need the online service.
 **PowerPoint → PDF** and **PDF → Excel** have no faithful offline equivalent
 and require an optional conversion-service API key (see
 [Online conversions](#-online-conversions)); without one they fail with a
