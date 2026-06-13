@@ -112,7 +112,11 @@ fun ImageStudioScreen(
         cropL = 0f; cropT = 0f; cropR = 1f; cropB = 1f
     }
 
-    var previewFailed by remember(source?.uriString) { mutableStateOf(false) }
+    // Re-keyed on orientation too, so a prior failure flag is cleared (and the
+    // spinner shown) the instant the user rotates/flips, not one frame late.
+    var previewFailed by remember(source?.uriString, rotation, flipH, flipV) {
+        mutableStateOf(false)
+    }
     val preview by produceState<Bitmap?>(null, source?.uriString, rotation, flipH, flipV) {
         val uri = source?.uriString
         // Decode + transform on IO; doing this on Main froze the UI on big photos.

@@ -106,12 +106,14 @@ class ImagesToPdfConverter(
 
             val w = toEncode.width.toFloat()
             val h = toEncode.height.toFloat()
+            // Build the image + content stream BEFORE attaching the page, so a
+            // failure here can't leave a blank page in the saved document.
             val page = PDPage(PDRectangle(w, h))
-            document.addPage(page)
             val image = JPEGFactory.createFromStream(document, ByteArrayInputStream(jpeg))
             PDPageContentStream(document, page).use { cs ->
                 cs.drawImage(image, 0f, 0f, w, h)
             }
+            document.addPage(page)
             return true
         } catch (oom: OutOfMemoryError) {
             return false
