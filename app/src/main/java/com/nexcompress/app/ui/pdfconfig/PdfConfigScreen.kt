@@ -63,7 +63,7 @@ fun PdfConfigScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Compress PDF Utility", style = MaterialTheme.typography.titleMedium) },
+                title = { Text("Compress PDF", style = MaterialTheme.typography.titleMedium) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -83,7 +83,7 @@ fun PdfConfigScreen(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            SectionLabel("Selected File Metrics")
+            SectionLabel("Selected file")
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
@@ -110,7 +110,7 @@ fun PdfConfigScreen(
                         )
                         Spacer(Modifier.height(2.dp))
                         Text(
-                            text = "Detected Original Size: " +
+                            text = "Size: " +
                                 (input?.let { FormatUtils.formatBytes(it.sizeBytes) } ?: "—"),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -120,7 +120,7 @@ fun PdfConfigScreen(
             }
 
             Spacer(Modifier.height(4.dp))
-            SectionLabel("Output File Name")
+            SectionLabel("Save as")
             OutlinedTextField(
                 value = viewModel.pdfOutputName,
                 onValueChange = viewModel::updatePdfOutputName,
@@ -139,7 +139,7 @@ fun PdfConfigScreen(
             )
 
             Spacer(Modifier.height(4.dp))
-            SectionLabel("Choose Target Compression Profile")
+            SectionLabel("Compression level")
 
             CompressionProfile.entries.forEach { profile ->
                 ProfileOption(
@@ -164,17 +164,11 @@ fun PdfConfigScreen(
                 Icon(Icons.Filled.Bolt, contentDescription = null, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.size(8.dp))
                 Text(
-                    "COMPRESS DOCUMENT",
+                    "Compress PDF",
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold
                 )
             }
-            Text(
-                "Triggers file processing and a standard background task.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 2.dp)
-            )
 
             Spacer(Modifier.height(8.dp))
             LocalProcessingNote()

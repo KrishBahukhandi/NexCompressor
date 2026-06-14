@@ -23,23 +23,23 @@ enum class CompressionProfile(
     val maxImageEdgePx: Int
 ) {
     RECOMMENDED(
-        title = "Recommended Savings",
-        subtitle = "Recompresses photos & scans; text stays sharp",
-        badge = "65% Compression",
+        title = "Recommended",
+        subtitle = "Good quality, much smaller file. Text stays sharp.",
+        badge = "Balanced",
         quality = 58,
         maxImageEdgePx = 1600
     ),
     BALANCED(
-        title = "Balanced Extraction",
-        subtitle = "Strongest squeeze on imagery for the smallest file",
-        badge = "40% Compression",
+        title = "Smallest file",
+        subtitle = "Squeezes images hardest — best for mostly-text PDFs.",
+        badge = "Max savings",
         quality = 42,
         maxImageEdgePx = 1200
     ),
     HIGH_FIDELITY(
-        title = "High-Fidelity Retain",
-        subtitle = "Gentle image recompression, near-original quality",
-        badge = "90% Compression",
+        title = "Best quality",
+        subtitle = "Barely touches images — for photo-heavy PDFs.",
+        badge = "Light",
         quality = 85,
         maxImageEdgePx = 2400
     );
