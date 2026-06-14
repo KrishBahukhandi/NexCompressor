@@ -72,11 +72,13 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import com.nexcompress.app.domain.model.AnnotationFont
 import com.nexcompress.app.domain.model.InkAnnotation
 import com.nexcompress.app.domain.model.NormPoint
 import com.nexcompress.app.domain.model.PdfAnnotation
@@ -112,8 +114,20 @@ private data class TextItem(
     val left: Float,
     val top: Float,
     val fontFrac: Float,
-    val colorArgb: Int
+    val colorArgb: Int,
+    val font: AnnotationFont,
+    val bold: Boolean
 ) : AnnItem
+
+/** Sizes offered in the text dialog (fraction of page height). */
+private val TEXT_SIZES = listOf("S" to 0.025f, "M" to 0.035f, "L" to 0.05f)
+
+/** Compose font family for an annotation font. */
+private fun AnnotationFont.toFontFamily(): FontFamily = when (this) {
+    AnnotationFont.SANS -> FontFamily.SansSerif
+    AnnotationFont.SERIF -> FontFamily.Serif
+    AnnotationFont.MONO -> FontFamily.Monospace
+}
 
 /**
  * On-device PDF markup editor: add text boxes, draw with a pen, or highlight,
@@ -138,6 +152,7 @@ fun AnnotatePdfScreen(
     val items = remember { mutableStateListOf<AnnItem>() }
     var nextId by remember { mutableStateOf(0L) }
     var pendingTextAt by remember { mutableStateOf<NormPoint?>(null) }
+    var editingId by remember { mutableStateOf<Long?>(null) }
 
     val pagePreview by produceStatePreview(renderer, selectedPage)
 
@@ -240,7 +255,8 @@ fun AnnotatePdfScreen(
                                 val t = items[idx] as TextItem
                                 items[idx] = t.copy(left = nl, top = nt)
                             }
-                        }
+                        },
+                        onEditText = { id -> editingId = id }
                     )
                 }
             }
@@ -324,32 +340,65 @@ fun AnnotatePdfScreen(
         }
     }
 
+    // Add-new text dialog.
     pendingTextAt?.let { at ->
-        TextEntryDialog(
-            onDismiss = { pendingTextAt = null },
-            onConfirm = { entered ->
-                if (entered.isNotBlank()) {
-                    items.add(
-                        TextItem(
-                            id = nextId++,
-                            pageIndex = selectedPage,
-                            text = entered,
-                            left = at.x,
-                            top = at.y,
-                            fontFrac = TEXT_FONT_FRAC,
-                            colorArgb = color.toArgb()
-                        )
+        TextStyleDialog(
+            initial = TextDraft("", AnnotationFont.SANS, false, TEXT_FONT_FRAC, color.toArgb()),
+            isEdit = false,
+            onConfirm = { draft ->
+                items.add(
+                    TextItem(
+                        id = nextId++,
+                        pageIndex = selectedPage,
+                        text = draft.text,
+                        left = at.x,
+                        top = at.y,
+                        fontFrac = draft.fontFrac,
+                        colorArgb = draft.colorArgb,
+                        font = draft.font,
+                        bold = draft.bold
                     )
-                }
+                )
                 pendingTextAt = null
-            }
+            },
+            onDelete = {},
+            onDismiss = { pendingTextAt = null }
         )
+    }
+
+    // Edit-existing text dialog (change text, font, size, color, or delete).
+    editingId?.let { id ->
+        val idx = items.indexOfFirst { it is TextItem && it.id == id }
+        val item = items.getOrNull(idx) as? TextItem
+        if (item == null) {
+            editingId = null
+        } else {
+            TextStyleDialog(
+                initial = TextDraft(item.text, item.font, item.bold, item.fontFrac, item.colorArgb),
+                isEdit = true,
+                onConfirm = { draft ->
+                    items[idx] = item.copy(
+                        text = draft.text,
+                        font = draft.font,
+                        bold = draft.bold,
+                        fontFrac = draft.fontFrac,
+                        colorArgb = draft.colorArgb
+                    )
+                    editingId = null
+                },
+                onDelete = {
+                    items.removeAt(idx)
+                    editingId = null
+                },
+                onDismiss = { editingId = null }
+            )
+        }
     }
 }
 
 private fun AnnItem.toAnnotation(): PdfAnnotation = when (this) {
     is InkItem -> ink
-    is TextItem -> TextAnnotation(pageIndex, text, left, top, fontFrac, colorArgb)
+    is TextItem -> TextAnnotation(pageIndex, text, left, top, fontFrac, colorArgb, font, bold)
 }
 
 @Composable
@@ -376,7 +425,8 @@ private fun AnnotationCanvas(
     selectedPage: Int,
     onAddInk: (List<NormPoint>, Boolean) -> Unit,
     onTapForText: (NormPoint) -> Unit,
-    onMoveText: (Long, Float, Float) -> Unit
+    onMoveText: (Long, Float, Float) -> Unit,
+    onEditText: (Long) -> Unit
 ) {
     var boxSize by remember { mutableStateOf(IntSize.Zero) }
     val current = remember { mutableStateListOf<Offset>() } // in-progress stroke (px)
@@ -469,7 +519,7 @@ private fun AnnotationCanvas(
         if (boxSize.width > 0) {
             items.forEach { item ->
                 if (item is TextItem && item.pageIndex == selectedPage) {
-                    DraggableText(item, boxSize, onMoveText)
+                    DraggableText(item, boxSize, onMoveText, onEditText)
                 }
             }
         }
@@ -480,7 +530,8 @@ private fun AnnotationCanvas(
 private fun DraggableText(
     item: TextItem,
     boxSize: IntSize,
-    onMove: (Long, Float, Float) -> Unit
+    onMove: (Long, Float, Float) -> Unit,
+    onEdit: (Long) -> Unit
 ) {
     val density = LocalDensity.current
     val bw = boxSize.width.toFloat()
@@ -490,6 +541,11 @@ private fun DraggableText(
     Box(
         Modifier
             .offset { IntOffset((item.left * bw).roundToInt(), (item.top * bh).roundToInt()) }
+            // A border hint so users see the box is interactive (tap to edit, drag to move).
+            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f))
+            .pointerInput(item.id) {
+                detectTapGestures { onEdit(item.id) }
+            }
             .pointerInput(item.id, boxSize) {
                 detectDragGestures { change, drag ->
                     change.consume()
@@ -506,7 +562,9 @@ private fun DraggableText(
             text = item.text,
             color = Color(item.colorArgb),
             fontSize = fontSp,
-            fontWeight = FontWeight.Medium
+            fontFamily = item.font.toFontFamily(),
+            fontWeight = if (item.bold) FontWeight.Bold else FontWeight.Normal,
+            modifier = Modifier.padding(2.dp)
         )
     }
 }
@@ -556,27 +614,120 @@ private fun ToolChip(
     )
 }
 
+/** Editable state of a text box while the dialog is open. */
+private data class TextDraft(
+    val text: String,
+    val font: AnnotationFont,
+    val bold: Boolean,
+    val fontFrac: Float,
+    val colorArgb: Int
+)
+
 @Composable
-private fun TextEntryDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
-    var text by remember { mutableStateOf("") }
+private fun TextStyleDialog(
+    initial: TextDraft,
+    isEdit: Boolean,
+    onConfirm: (TextDraft) -> Unit,
+    onDelete: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    var text by remember { mutableStateOf(initial.text) }
+    var font by remember { mutableStateOf(initial.font) }
+    var bold by remember { mutableStateOf(initial.bold) }
+    var fontFrac by remember { mutableStateOf(initial.fontFrac) }
+    var colorArgb by remember { mutableStateOf(initial.colorArgb) }
+
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surface) {
-            Column(Modifier.padding(18.dp)) {
-                Text("Add text", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Column(Modifier.padding(18.dp).verticalScroll(rememberScrollState())) {
+                Text(
+                    if (isEdit) "Edit text" else "Add text",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
                 Spacer(Modifier.height(12.dp))
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
                     label = { Text("Text") },
+                    textStyle = androidx.compose.ui.text.TextStyle(fontFamily = font.toFontFamily()),
                     modifier = Modifier.fillMaxWidth()
                 )
-                Spacer(Modifier.height(8.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+
+                Spacer(Modifier.height(12.dp))
+                Text("Font", style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.height(4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FontChip("Sans", FontFamily.SansSerif, font == AnnotationFont.SANS) { font = AnnotationFont.SANS }
+                    FontChip("Serif", FontFamily.Serif, font == AnnotationFont.SERIF) { font = AnnotationFont.SERIF }
+                    FontChip("Mono", FontFamily.Monospace, font == AnnotationFont.MONO) { font = AnnotationFont.MONO }
+                }
+
+                Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Size", style = MaterialTheme.typography.labelLarge)
+                    Spacer(Modifier.size(12.dp))
+                    TEXT_SIZES.forEach { (label, frac) ->
+                        FilterChip(
+                            selected = fontFrac == frac,
+                            onClick = { fontFrac = frac },
+                            label = { Text(label) },
+                            modifier = Modifier.padding(end = 6.dp)
+                        )
+                    }
+                    Spacer(Modifier.weight(1f))
+                    FilterChip(
+                        selected = bold,
+                        onClick = { bold = !bold },
+                        label = { Text("Bold", fontWeight = FontWeight.Bold) }
+                    )
+                }
+
+                Spacer(Modifier.height(12.dp))
+                Text("Color", style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SWATCHES.forEach { sw ->
+                        Box(
+                            modifier = Modifier
+                                .size(30.dp)
+                                .background(sw, CircleShape)
+                                .border(
+                                    width = if (sw.toArgb() == colorArgb) 3.dp else 1.dp,
+                                    color = if (sw.toArgb() == colorArgb) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.outlineVariant,
+                                    shape = CircleShape
+                                )
+                                .pointerInput(Unit) { detectTapGestures { colorArgb = sw.toArgb() } }
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(14.dp))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    if (isEdit) {
+                        TextButton(onClick = onDelete) {
+                            Text("Delete", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                    Spacer(Modifier.weight(1f))
                     TextButton(onClick = onDismiss) { Text("Cancel") }
                     Spacer(Modifier.size(8.dp))
-                    Button(onClick = { onConfirm(text) }, enabled = text.isNotBlank()) { Text("Add") }
+                    Button(
+                        onClick = { onConfirm(TextDraft(text, font, bold, fontFrac, colorArgb)) },
+                        enabled = text.isNotBlank()
+                    ) { Text(if (isEdit) "Save" else "Add") }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun FontChip(label: String, family: FontFamily, selected: Boolean, onClick: () -> Unit) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = { Text(label, fontFamily = family) }
+    )
 }
