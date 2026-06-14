@@ -10,6 +10,8 @@ import com.nexcompress.app.domain.model.FileType
 import com.nexcompress.app.domain.model.OutputItem
 import com.nexcompress.app.domain.model.PickedFile
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileOutputStream
 import java.util.zip.ZipOutputStream
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.Dispatchers
@@ -28,11 +30,10 @@ class PdfToPptxConverter(
     private val storage: FileStorageManager
 ) {
 
-    private data class SlideImage(val jpeg: ByteArray, val wPx: Int, val hPx: Int)
-
     suspend fun convert(input: PickedFile, outputBaseName: String): CompressionResult =
         withContext(Dispatchers.IO) {
             var renderer: PdfPageRenderer? = null
+            val temp = File.createTempFile("nexpptx_", ".pptx", context.cacheDir)
             try {
                 renderer = try {
                     PdfPageRenderer(context, Uri.parse(input.uriString))
@@ -51,25 +52,16 @@ class PdfToPptxConverter(
                     )
                 }
 
-                val slides = mutableListOf<SlideImage>()
-                for (i in 0 until pageCount) {
-                    coroutineContext.ensureActive()
-                    val bmp = renderer.renderPage(i, RENDER_LONG_EDGE)
-                        ?: throw CompressionException("Couldn't render page ${i + 1}.")
-                    try {
-                        val jpeg = ByteArrayOutputStream().use { baos ->
-                            bmp.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, baos)
-                            baos.toByteArray()
-                        }
-                        slides.add(SlideImage(jpeg, bmp.width, bmp.height))
-                    } finally {
-                        bmp.recycle()
-                    }
+                // Stream each page's image + slide straight into the zip so only
+                // one page bitmap is resident at a time (a 200-slide deck would
+                // otherwise hold all its JPEGs in memory at once).
+                ZipOutputStream(FileOutputStream(temp)).use { zip ->
+                    writePptx(zip, renderer, pageCount)
                 }
 
                 val outName = storage.composeOutputName(outputBaseName, "pptx")
                 val saved = storage.writeOutput(outName, PPTX_MIME) { os ->
-                    writePptx(ZipOutputStream(os), slides)
+                    temp.inputStream().use { it.copyTo(os) }
                 }
                 CompressionResult(
                     listOf(
@@ -90,28 +82,83 @@ class PdfToPptxConverter(
                 throw CompressionException("Couldn't convert this PDF to a presentation.")
             } finally {
                 runCatching { renderer?.close() }
+                temp.delete()
             }
         }
 
     // ------------------------------------------------------------------ //
-    // .pptx generation                                                   //
+    // .pptx generation (streaming: one page bitmap resident at a time)    //
     // ------------------------------------------------------------------ //
 
-    private fun writePptx(zip: ZipOutputStream, slides: List<SlideImage>) {
+    private suspend fun writePptx(z: ZipOutputStream, renderer: PdfPageRenderer, pageCount: Int) {
         // Deck size follows the first page's orientation (long edge = 10").
-        val first = slides.first()
-        val slideCx: Long
-        val slideCy: Long
-        if (first.hPx >= first.wPx) {
-            slideCy = SLIDE_LONG_EDGE_EMU
-            slideCx = SLIDE_LONG_EDGE_EMU * first.wPx / first.hPx
-        } else {
-            slideCx = SLIDE_LONG_EDGE_EMU
-            slideCy = SLIDE_LONG_EDGE_EMU * first.hPx / first.wPx
+        var slideCx = 0L
+        var slideCy = 0L
+
+        for (i in 0 until pageCount) {
+            coroutineContext.ensureActive()
+            val bmp = renderer.renderPage(i, RENDER_LONG_EDGE)
+                ?: throw CompressionException("Couldn't render page ${i + 1}.")
+            val wPx: Int
+            val hPx: Int
+            val jpeg: ByteArray
+            try {
+                wPx = bmp.width
+                hPx = bmp.height
+                jpeg = ByteArrayOutputStream().use { baos ->
+                    bmp.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, baos)
+                    baos.toByteArray()
+                }
+            } finally {
+                bmp.recycle()
+            }
+            if (i == 0) {
+                if (hPx >= wPx) {
+                    slideCy = SLIDE_LONG_EDGE_EMU
+                    slideCx = SLIDE_LONG_EDGE_EMU * wPx / hPx
+                } else {
+                    slideCx = SLIDE_LONG_EDGE_EMU
+                    slideCy = SLIDE_LONG_EDGE_EMU * hPx / wPx
+                }
+            }
+
+            z.putPart("ppt/media/image${i + 1}.jpg", jpeg)
+
+            // Letterbox the page image into the deck's slide rectangle.
+            val scale = minOf(slideCx.toDouble() / wPx, slideCy.toDouble() / hPx)
+            val extCx = (wPx * scale).toLong()
+            val extCy = (hPx * scale).toLong()
+            val offX = (slideCx - extCx) / 2
+            val offY = (slideCy - extCy) / 2
+
+            z.putPart(
+                "ppt/slides/slide${i + 1}.xml",
+                """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+<p:cSld><p:spTree>
+<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>
+<p:pic>
+<p:nvPicPr><p:cNvPr id="2" name="Page ${i + 1}"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr>
+<p:blipFill><a:blip r:embed="rId2"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>
+<p:spPr><a:xfrm><a:off x="$offX" y="$offY"/><a:ext cx="$extCx" cy="$extCy"/></a:xfrm>
+<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>
+</p:pic>
+</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>
+</p:sld>"""
+            )
+            z.putPart(
+                "ppt/slides/_rels/slide${i + 1}.xml.rels",
+                """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>
+<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image${i + 1}.jpg"/>
+</Relationships>"""
+            )
         }
 
-        zip.use { z ->
-            val slideOverrides = slides.indices.joinToString("") { i ->
+        // Package-level parts (order within the zip is irrelevant for OPC).
+        run {
+            val slideOverrides = (0 until pageCount).joinToString("") { i ->
                 """<Override PartName="/ppt/slides/slide${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>"""
             }
             z.putPart(
@@ -136,7 +183,7 @@ $slideOverrides
 </Relationships>"""
             )
 
-            val slideIds = slides.indices.joinToString("") { i ->
+            val slideIds = (0 until pageCount).joinToString("") { i ->
                 """<p:sldId id="${256 + i}" r:id="rId${2 + i}"/>"""
             }
             z.putPart(
@@ -148,7 +195,7 @@ $slideOverrides
 <p:sldSz cx="$slideCx" cy="$slideCy"/><p:notesSz cx="6858000" cy="9144000"/>
 </p:presentation>"""
             )
-            val slideRels = slides.indices.joinToString("") { i ->
+            val slideRels = (0 until pageCount).joinToString("") { i ->
                 """<Relationship Id="rId${2 + i}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide${i + 1}.xml"/>"""
             }
             z.putPart(
@@ -178,43 +225,6 @@ $slideRels
 </Relationships>"""
             )
             z.putPart("ppt/theme/theme1.xml", THEME_XML)
-
-            slides.forEachIndexed { i, slide ->
-                // Letterbox the page image into the deck's slide rectangle.
-                val scale = minOf(
-                    slideCx.toDouble() / slide.wPx,
-                    slideCy.toDouble() / slide.hPx
-                )
-                val extCx = (slide.wPx * scale).toLong()
-                val extCy = (slide.hPx * scale).toLong()
-                val offX = (slideCx - extCx) / 2
-                val offY = (slideCy - extCy) / 2
-
-                z.putPart(
-                    "ppt/slides/slide${i + 1}.xml",
-                    """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
-<p:cSld><p:spTree>
-<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>
-<p:pic>
-<p:nvPicPr><p:cNvPr id="2" name="Page ${i + 1}"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr>
-<p:blipFill><a:blip r:embed="rId2"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>
-<p:spPr><a:xfrm><a:off x="$offX" y="$offY"/><a:ext cx="$extCx" cy="$extCy"/></a:xfrm>
-<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>
-</p:pic>
-</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>
-</p:sld>"""
-                )
-                z.putPart(
-                    "ppt/slides/_rels/slide${i + 1}.xml.rels",
-                    """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>
-<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image${i + 1}.jpg"/>
-</Relationships>"""
-                )
-                z.putPart("ppt/media/image${i + 1}.jpg", slide.jpeg)
-            }
         }
     }
 

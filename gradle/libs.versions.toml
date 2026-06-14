@@ -13,6 +13,7 @@ playServicesAds = "23.6.0"
 reorderable = "2.4.0"
 pdfbox = "2.0.27.0"
 exifinterface = "1.3.7"
+mlkitTextRecognition = "16.0.1"
 androidxTestJunit = "1.2.1"
 androidxTestRunner = "1.6.2"
 
@@ -38,6 +39,7 @@ play-services-ads = { group = "com.google.android.gms", name = "play-services-ad
 reorderable = { group = "sh.calvin.reorderable", name = "reorderable", version.ref = "reorderable" }
 pdfbox-android = { group = "com.tom-roush", name = "pdfbox-android", version.ref = "pdfbox" }
 androidx-exifinterface = { group = "androidx.exifinterface", name = "exifinterface", version.ref = "exifinterface" }
+mlkit-text-recognition = { group = "com.google.mlkit", name = "text-recognition", version.ref = "mlkitTextRecognition" }
 androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxTestJunit" }
 androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "androidxTestRunner" }
 

@@ -80,10 +80,14 @@ class RestConversionService(
         try {
             // --- Upload the file as multipart/form-data ---
             connection.outputStream.use { out ->
+                // Sanitize the filename: a quote/CR/LF would break the header framing.
+                val safeName = input.displayName
+                    .replace("\r", "").replace("\n", "").replace("\"", "'")
+                    .ifBlank { "upload.${conversion.defaultSourceExt}" }
                 val header = buildString {
                     append("--").append(boundary).append("\r\n")
                     append("Content-Disposition: form-data; name=\"File\"; filename=\"")
-                        .append(input.displayName).append("\"\r\n")
+                        .append(safeName).append("\"\r\n")
                     append("Content-Type: application/octet-stream\r\n\r\n")
                 }
                 out.write(header.toByteArray(Charsets.UTF_8))

@@ -217,6 +217,24 @@ class UtilityProcessorsTest {
             val burst = splitter.splitEach(pickedPdf(pdf), "test_burst").items
             burst.forEach { outputs.add(it) }
             assertEquals(3, burst.size)
+            // Each burst file must hold exactly its own page, in order — not the
+            // same page three times or a mis-ordered set.
+            val expected = listOf("first page", "second page", "third page")
+            burst.forEachIndexed { i, out ->
+                val staged = stage(out.uri)
+                try {
+                    PDDocument.load(staged).use { doc ->
+                        assertEquals("burst file ${i + 1} should be a single page", 1, doc.numberOfPages)
+                        val text = PDFTextStripper().getText(doc)
+                        assertTrue(
+                            "burst file ${i + 1} should contain '${expected[i]}' but was [$text]",
+                            text.contains(expected[i])
+                        )
+                    }
+                } finally {
+                    staged.delete()
+                }
+            }
         } finally {
             pdf.delete()
         }

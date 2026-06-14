@@ -199,8 +199,13 @@ class FileStorageManager(private val context: Context) {
         return candidate
     }
 
-    private fun defaultNameFor(type: FileType): String =
-        if (type == FileType.PDF) "document.pdf" else "image.png"
+    private fun defaultNameFor(type: FileType): String = when (type) {
+        FileType.PDF -> "document.pdf"
+        FileType.IMAGE -> "image.png"
+        // No fake extension: a misleading ext (e.g. ".png") would poison
+        // extension-based conversion routing when a provider hides DISPLAY_NAME.
+        FileType.DOCUMENT -> "document"
+    }
 
     companion object {
         const val OUTPUT_DIR_NAME = "NexCompress"
