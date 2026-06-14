@@ -145,7 +145,9 @@ fun SplitPdfScreen(
             }
 
             if (splitAll) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                // weight(1f), NOT fillMaxSize — the latter consumes all remaining
+                // height and pushes the action button off-screen.
+                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(
                             Icons.Filled.ContentCut,

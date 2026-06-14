@@ -105,9 +105,9 @@ fun ProcessingScreen(
 private fun ProcessingContent() {
     val messages = remember {
         listOf(
-            "Optimizing asset structure…",
-            "Executing down-sampling formulas…",
-            "Rebuilding compressed output…"
+            "Working on your file…",
+            "Almost there…",
+            "Finishing up…"
         )
     }
     var index by remember { mutableIntStateOf(0) }
@@ -136,7 +136,7 @@ private fun ProcessingContent() {
         verticalArrangement = Arrangement.Center
     ) {
         Text(
-            "PROCESSING FILE UTILITY",
+            "PROCESSING",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.primary,
             fontWeight = FontWeight.Bold
@@ -165,13 +165,14 @@ private fun ProcessingContent() {
         }
         Spacer(Modifier.height(8.dp))
         Text(
-            "Please wait.",
+            "This runs on your device, so it's quick.",
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
         )
         Spacer(Modifier.height(24.dp))
         Text(
-            "(Do not close the application window)",
+            "Please keep the app open",
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center

@@ -1,6 +1,8 @@
 package com.nexcompress.app.ui.results
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,12 +12,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.IosShare
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -28,6 +33,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -35,6 +42,10 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -43,12 +54,15 @@ import androidx.compose.ui.unit.dp
 import com.nexcompress.app.domain.model.CompressionResult
 import com.nexcompress.app.domain.model.CompressionState
 import com.nexcompress.app.domain.model.FileType
+import com.nexcompress.app.domain.model.OutputItem
 import com.nexcompress.app.domain.util.FormatUtils
 import com.nexcompress.app.ui.CompressionViewModel
 import com.nexcompress.app.ui.components.MetricRow
 import com.nexcompress.app.ui.components.SectionLabel
 import com.nexcompress.app.ui.theme.NexGreen
+import com.nexcompress.app.ui.util.FileSaver
 import com.nexcompress.app.ui.util.IntentUtils
+import kotlinx.coroutines.launch
 
 /**
  * Screen 4 — Processing Results & Analytics.
@@ -64,15 +78,53 @@ fun ResultsScreen(
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
     val result = (state as? CompressionState.Success)?.result
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // --- "Download a copy" (SAF): outputs already live in Downloads/NexCompress;
+    // this is an extra "Save as" to any location the user picks. ---
+    var pendingDownload by remember { mutableStateOf<OutputItem?>(null) }
+    val downloadOneLauncher = rememberLauncherForActivityResult(
+        FileSaver.CreateDocumentContract()
+    ) { dest ->
+        val item = pendingDownload
+        pendingDownload = null
+        if (dest != null && item != null) {
+            scope.launch {
+                val ok = FileSaver.copyToDocument(context, item.uri, dest)
+                snackbarHostState.showSnackbar(
+                    if (ok) "Saved ${item.displayName}." else "Couldn't save the file."
+                )
+            }
+        }
+    }
+    val downloadAllLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { tree ->
+        val items = result?.items.orEmpty()
+        if (tree != null && items.isNotEmpty()) {
+            scope.launch {
+                val saved = FileSaver.copyAllToTree(context, items, tree)
+                snackbarHostState.showSnackbar(
+                    when {
+                        saved == items.size -> "Saved $saved files."
+                        saved > 0 -> "Saved $saved of ${items.size} files."
+                        else -> "Couldn't save the files."
+                    }
+                )
+            }
+        }
+    }
 
     // The results screen is a terminal node — back returns Home cleanly.
     BackHandler { onHome() }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
-                    Text("Processing Completed", style = MaterialTheme.typography.titleMedium)
+                    Text("Done", style = MaterialTheme.typography.titleMedium)
                 },
                 navigationIcon = {
                     IconButton(onClick = onHome) {
@@ -94,16 +146,17 @@ fun ResultsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Spacer(Modifier.height(4.dp))
             SuccessBadge(result = result)
 
-            SectionLabel("Transaction Analysis Achieved")
+            SectionLabel("Summary")
             AnalysisCard(result)
 
-            SectionLabel("Output File Management Controls")
+            SectionLabel("What's next")
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedButton(
                     onClick = {
@@ -139,11 +192,39 @@ fun ResultsScreen(
                 }
             }
 
+            // Save an extra copy anywhere the user chooses.
+            OutlinedButton(
+                onClick = {
+                    if (result.isBatch) {
+                        runCatching { downloadAllLauncher.launch(null) }
+                    } else {
+                        result.items.firstOrNull()?.let { item ->
+                            pendingDownload = item
+                            runCatching {
+                                downloadOneLauncher.launch(
+                                    FileSaver.CreateDocumentRequest(
+                                        suggestedName = item.displayName,
+                                        mimeType = IntentUtils.mimeTypeForName(item.displayName)
+                                    )
+                                )
+                            }
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().height(50.dp),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Icon(Icons.Outlined.FileDownload, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.size(8.dp))
+                Text(if (result.isBatch) "Save a copy of all (${result.items.size})" else "Save a copy")
+            }
+
             Spacer(Modifier.height(2.dp))
             SavedNote()
 
             Spacer(Modifier.height(6.dp))
             RatingPrompt(onRate = { IntentUtils.openPlayStoreListing(context) })
+            Spacer(Modifier.height(16.dp))
         }
     }
 }
@@ -152,10 +233,10 @@ fun ResultsScreen(
 private fun SuccessBadge(result: CompressionResult) {
     // Compression jobs report a savings %; pure conversions report a count instead.
     val headline = when {
-        result.savings > 0 -> "Success! Reduced by ${result.efficiencyPercent}%"
-        result.items.size > 1 -> "Success! ${result.items.size} files created"
-        result.type == FileType.PDF -> "Success! PDF created"
-        else -> "Success! Conversion complete"
+        result.savings > 0 -> "Reduced by ${result.efficiencyPercent}%"
+        result.items.size > 1 -> "${result.items.size} files ready"
+        result.type == FileType.PDF -> "Your PDF is ready"
+        else -> "All done"
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Icon(
@@ -184,14 +265,14 @@ private fun AnalysisCard(result: CompressionResult) {
         Column(Modifier.padding(18.dp)) {
             if (result.savings > 0) {
                 // Compression framing: before / after / bytes reclaimed.
-                MetricRow("Original Resource Profile", FormatUtils.formatBytes(result.originalSize))
-                MetricRow("Optimized Target Footprint", FormatUtils.formatBytes(result.outputSize))
+                MetricRow("Original size", FormatUtils.formatBytes(result.originalSize))
+                MetricRow("New size", FormatUtils.formatBytes(result.outputSize))
                 HorizontalDivider(
                     Modifier.padding(vertical = 6.dp),
                     color = MaterialTheme.colorScheme.outlineVariant
                 )
                 MetricRow(
-                    label = "TOTAL FILESYSTEM SAVINGS",
+                    label = "You saved",
                     value = FormatUtils.formatBytes(result.savings),
                     emphasize = true,
                     valueColor = NexGreen
@@ -203,7 +284,7 @@ private fun AnalysisCard(result: CompressionResult) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        "Efficiency Delta Scaling",
+                        "Reduction",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -212,7 +293,7 @@ private fun AnalysisCard(result: CompressionResult) {
                         color = NexGreen.copy(alpha = 0.16f)
                     ) {
                         Text(
-                            "${result.efficiencyPercent}% Down",
+                            "${result.efficiencyPercent}% smaller",
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold,
                             color = NexGreen,
@@ -224,14 +305,14 @@ private fun AnalysisCard(result: CompressionResult) {
                 // Conversion / edit framing: a new asset was produced, nothing was
                 // "saved" — a 0%-down badge here would read like a failure.
                 if (result.originalSize > 0) {
-                    MetricRow("Total Input Size", FormatUtils.formatBytes(result.originalSize))
+                    MetricRow("Input size", FormatUtils.formatBytes(result.originalSize))
                 }
                 HorizontalDivider(
                     Modifier.padding(vertical = 6.dp),
                     color = MaterialTheme.colorScheme.outlineVariant
                 )
                 MetricRow(
-                    label = if (result.items.size > 1) "TOTAL OUTPUT SIZE" else "OUTPUT FILE SIZE",
+                    label = if (result.items.size > 1) "Total size" else "File size",
                     value = FormatUtils.formatBytes(result.outputSize),
                     emphasize = true
                 )

@@ -39,17 +39,16 @@ engine — text stays selectable and **nothing is uploaded**.
 | **Protect PDF** | Lock a PDF with a password (AES/standard security) or unlock a protected one — the password never leaves the device. |
 | **Image Studio** | Rotate, flip, crop (draggable frame) and resize an image, then re-encode to JPG / PNG / WebP. |
 
-### Office conversions (sidebar)
+### Document conversions (sidebar)
 Four run **fully on-device** (content-faithful; complex layout simplified):
 **Word → PDF**, **Excel → PDF**, **PDF → Word** (text-focused, with on-device
 **OCR** via Google ML Kit so scanned/image-only PDFs convert too — the model is
 bundled, nothing is uploaded) and **PDF → PowerPoint** (each page becomes a
-full-bleed slide image). Modern formats only (.docx/.xlsx) — legacy .doc/.xls
-need the online service.
-**PowerPoint → PDF** and **PDF → Excel** have no faithful offline equivalent
-and require an optional conversion-service API key (see
-[Online conversions](#-online-conversions)); without one they fail with a
-clear message instead of producing placeholder output.
+full-bleed slide image). Modern formats only (.docx/.xlsx/.pdf).
+
+PowerPoint → PDF and PDF → Excel had no faithful offline path and were removed
+from the app; the pluggable [RestConversionService] remains in the codebase for
+a future keyed deployment but is no longer surfaced.
 
 ### Throughout
 - 📊 **Performance ledger** — cumulative storage reclaimed + file history (Room).
