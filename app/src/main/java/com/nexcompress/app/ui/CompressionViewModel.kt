@@ -11,6 +11,7 @@ import com.nexcompress.app.data.processor.ImageConverter
 import com.nexcompress.app.data.processor.ImageEditor
 import com.nexcompress.app.data.processor.ImagesToPdfConverter
 import com.nexcompress.app.data.processor.OfficeConverter
+import com.nexcompress.app.data.processor.PdfAnnotator
 import com.nexcompress.app.data.processor.PdfCompressor
 import com.nexcompress.app.data.processor.PdfMerger
 import com.nexcompress.app.data.processor.PdfPageEditor
@@ -30,6 +31,7 @@ import com.nexcompress.app.domain.model.ImageBatchItem
 import com.nexcompress.app.domain.model.ImageEditSpec
 import com.nexcompress.app.domain.model.ImageFormat
 import com.nexcompress.app.domain.model.OnlineConversion
+import com.nexcompress.app.domain.model.PdfAnnotation
 import com.nexcompress.app.domain.model.PdfPageOp
 import com.nexcompress.app.domain.model.PickedFile
 import com.nexcompress.app.domain.model.SignaturePlacement
@@ -59,6 +61,7 @@ class CompressionViewModel(
     private val pdfSplitter: PdfSplitter,
     private val pdfProtector: PdfProtector,
     private val pdfSigner: PdfSigner,
+    private val pdfAnnotator: PdfAnnotator,
     private val officeConverter: OfficeConverter,
     private val onlineConversionService: OnlineConversionService
 ) : ViewModel() {
@@ -146,6 +149,12 @@ class CompressionViewModel(
     var signSource by mutableStateOf<PickedFile?>(null)
         private set
     var signName by mutableStateOf("")
+        private set
+
+    // --- Annotate PDF ---
+    var annotateSource by mutableStateOf<PickedFile?>(null)
+        private set
+    var annotateName by mutableStateOf("")
         private set
 
     // --- Processing state (Screen 3 / 4) ---
@@ -528,6 +537,28 @@ class CompressionViewModel(
         pdfSigner.sign(input, signaturePng, placement, name)
     }
 
+    // ===================== Annotate PDF ============================================
+
+    fun onAnnotatePicked(uri: Uri) {
+        viewModelScope.launch {
+            val picked = withContext(Dispatchers.IO) { storage.resolveMetadata(uri, FileType.PDF) }
+            annotateSource = picked
+            annotateName = storage.baseNameOf(picked.displayName) + "-edited"
+            _state.value = CompressionState.Idle
+        }
+    }
+
+    fun updateAnnotateName(name: String) {
+        annotateName = name
+    }
+
+    fun startAnnotate(annotations: List<PdfAnnotation>) = launchJob {
+        val input = annotateSource
+            ?: throw CompressionException("No document selected. Please pick a PDF first.")
+        val name = annotateName.ifBlank { storage.baseNameOf(input.displayName) + "-edited" }
+        pdfAnnotator.annotate(input, annotations, name)
+    }
+
     private fun launchJob(work: suspend () -> CompressionResult) {
         if (_state.value is CompressionState.Loading) return
         _state.value = CompressionState.Loading
@@ -583,6 +614,8 @@ class CompressionViewModel(
         protectName = ""
         signSource = null
         signName = ""
+        annotateSource = null
+        annotateName = ""
         _state.value = CompressionState.Idle
     }
 
