@@ -38,10 +38,16 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MergeType
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Savings
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.IosShare
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -80,8 +86,8 @@ import com.nexcompress.app.ui.theme.NexGreen
 import com.nexcompress.app.ui.theme.NexIndigo
 import com.nexcompress.app.ui.theme.NexViolet
 import com.nexcompress.app.domain.model.OnlineConversion
+import com.nexcompress.app.ui.util.FileSaver
 import com.nexcompress.app.ui.util.IntentUtils
-import com.nexcompress.app.ui.util.NetworkUtils
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.HorizontalDivider
@@ -124,6 +130,24 @@ fun HomeScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+
+    // "Download a copy" of a past output to a user-chosen location (SAF).
+    var downloadingEntry by remember { mutableStateOf<CompressionHistory?>(null) }
+    val downloadLauncher = rememberLauncherForActivityResult(
+        FileSaver.CreateDocumentContract()
+    ) { dest ->
+        val entry = downloadingEntry
+        downloadingEntry = null
+        if (dest != null && entry != null) {
+            scope.launch {
+                val ok = FileSaver.copyToDocument(context, entry.outputUri, dest)
+                snackbarHostState.showSnackbar(
+                    if (ok) "Saved ${entry.originalName}."
+                    else "Couldn't save the file — it may have been deleted."
+                )
+            }
+        }
+    }
 
     // SAF picker for PDFs — strictly application/pdf (PRD Flow A).
     val pdfPicker = rememberLauncherForActivityResult(
@@ -339,21 +363,10 @@ fun HomeScreen(
                     scope.launch { drawerState.close() }
                     runCatching { protectPicker.launch(arrayOf("application/pdf")) }
                 },
-                onlineConfigured = compressionViewModel.isOnlineConfigured,
-                onOnlineConversion = { conversion ->
+                onConvertDocument = { conversion ->
                     scope.launch { drawerState.close() }
-                    // On-device conversions work offline; only the service-backed
-                    // ones need connectivity.
-                    if (conversion.offline || NetworkUtils.isOnline(context)) {
-                        pendingOnline = conversion
-                        runCatching { onlinePicker.launch(conversion.sourceMimes.toTypedArray()) }
-                    } else {
-                        scope.launch {
-                            snackbarHostState.showSnackbar(
-                                "You're offline. Connect to the internet to use \"${conversion.title}\"."
-                            )
-                        }
-                    }
+                    pendingOnline = conversion
+                    runCatching { onlinePicker.launch(conversion.sourceMimes.toTypedArray()) }
                 }
             )
         }
@@ -397,10 +410,15 @@ fun HomeScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             item {
-                Column(Modifier.padding(top = 4.dp, bottom = 4.dp)) {
-                    SectionLabel("Welcome to Utilities")
+                Column(Modifier.padding(top = 6.dp, bottom = 8.dp)) {
                     Text(
-                        "Select a fast tool below to begin processing offline.",
+                        "What do you want to do?",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        "Everything runs on your device — nothing is uploaded.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -414,15 +432,15 @@ fun HomeScreen(
                         icon = Icons.Filled.PictureAsPdf,
                         accent = NexIndigo,
                         title = "Compress PDF",
-                        subtitle = "Reduce file size fast",
+                        subtitle = "Shrink file size",
                         onClick = { runCatching { pdfPicker.launch(arrayOf("application/pdf")) } }
                     )
                     FeatureTile(
                         modifier = Modifier.weight(1f),
                         icon = Icons.Filled.Image,
                         accent = NexViolet,
-                        title = "Convert Images",
-                        subtitle = "To JPG, PNG or WebP",
+                        title = "Convert images",
+                        subtitle = "JPG, PNG, WebP",
                         onClick = { runCatching { imagePicker.launch(arrayOf("image/*")) } }
                     )
                 }
@@ -435,7 +453,7 @@ fun HomeScreen(
                         icon = Icons.Filled.Draw,
                         accent = NexGreen,
                         title = "Sign PDF",
-                        subtitle = "Draw & place signature",
+                        subtitle = "Draw & place",
                         onClick = { runCatching { signPicker.launch(arrayOf("application/pdf")) } }
                     )
                     FeatureTile(
@@ -443,18 +461,21 @@ fun HomeScreen(
                         icon = Icons.Filled.Layers,
                         accent = NexIndigo,
                         title = "Edit PDF",
-                        subtitle = "Reorder, rotate, delete",
+                        subtitle = "Reorder, rotate",
                         onClick = { runCatching { pdfPagesPicker.launch(arrayOf("application/pdf")) } }
                     )
                 }
             }
 
-            item { Spacer(Modifier.height(2.dp)) }
-            item { SectionLabel("Recent Performance Ledger") }
+            item {
+                MoreToolsRow(onClick = { scope.launch { drawerState.open() } })
+            }
+
+            item { Spacer(Modifier.height(6.dp)) }
             item { LedgerCard(totalSavings = uiState.totalSavings, totalCount = uiState.totalCount) }
 
-            item { Spacer(Modifier.height(2.dp)) }
-            item { SectionLabel("History Tracking Log") }
+            item { Spacer(Modifier.height(6.dp)) }
+            item { SectionLabel("Recent files") }
 
             if (uiState.history.isEmpty()) {
                 item { EmptyHistory() }
@@ -463,6 +484,17 @@ fun HomeScreen(
                     HistoryRow(
                         entry = entry,
                         onRename = { renamingEntry = entry },
+                        onDownload = {
+                            downloadingEntry = entry
+                            runCatching {
+                                downloadLauncher.launch(
+                                    FileSaver.CreateDocumentRequest(
+                                        suggestedName = entry.originalName,
+                                        mimeType = IntentUtils.mimeTypeForName(entry.originalName)
+                                    )
+                                )
+                            }
+                        },
                         onShare = {
                             IntentUtils.share(
                                 context,
@@ -616,34 +648,87 @@ private fun FeatureTile(
     }
 }
 
+/** A full-width row that opens the tool drawer — makes the other tools discoverable. */
+@Composable
+private fun MoreToolsRow(onClick: () -> Unit) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(
+                        MaterialTheme.colorScheme.surfaceVariant,
+                        RoundedCornerShape(12.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Filled.GridView,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+            Spacer(Modifier.size(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "More tools",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    "Merge, split, protect, convert & more",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Icon(
+                Icons.AutoMirrored.Filled.ArrowForward,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}
+
+/** Compact at-a-glance card: space saved + files handled, side by side. */
 @Composable
 private fun LedgerCard(totalSavings: Long, totalCount: Int) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Column(Modifier.padding(18.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Filled.Savings,
-                        contentDescription = null,
-                        tint = NexGreen,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(Modifier.size(8.dp))
-                    Text(
-                        "Total Storage Reclaimed",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Filled.Savings,
+                contentDescription = null,
+                tint = NexGreen,
+                modifier = Modifier.size(22.dp)
+            )
+            Spacer(Modifier.size(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "Space saved so far",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 Text(
                     FormatUtils.formatBytes(totalSavings),
                     style = MaterialTheme.typography.titleLarge,
@@ -651,30 +736,16 @@ private fun LedgerCard(totalSavings: Long, totalCount: Int) {
                     color = NexGreen
                 )
             }
-            Spacer(Modifier.height(10.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Filled.Inventory2,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(Modifier.size(8.dp))
-                    Text(
-                        "Total Files Handled",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+            Column(horizontalAlignment = Alignment.End) {
                 Text(
-                    "$totalCount " + if (totalCount == 1) "File" else "Files",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
+                    if (totalCount == 1) "File" else "Files",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    "$totalCount",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
                 )
             }
         }
@@ -685,6 +756,7 @@ private fun LedgerCard(totalSavings: Long, totalCount: Int) {
 private fun HistoryRow(
     entry: CompressionHistory,
     onRename: () -> Unit,
+    onDownload: () -> Unit,
     onShare: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -698,69 +770,102 @@ private fun HistoryRow(
         FileType.IMAGE -> NexViolet
         FileType.DOCUMENT -> MaterialTheme.colorScheme.tertiary
     }
+    val typeLabel = when (entry.type) {
+        FileType.PDF -> "PDF"
+        FileType.IMAGE -> "Image"
+        FileType.DOCUMENT -> "Document"
+    }
+    val meta = buildString {
+        append(typeLabel)
+        append(" · ")
+        append(FormatUtils.formatBytesCompact(entry.outputSize))
+        if (entry.savings > 0) {
+            val original = entry.outputSize + entry.savings
+            if (original > 0) append(" · saved ${(entry.savings * 100 / original)}%")
+        }
+    }
+    var menuOpen by remember { mutableStateOf(false) }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 14.dp, top = 8.dp, bottom = 8.dp, end = 2.dp),
+            modifier = Modifier.fillMaxWidth().padding(start = 12.dp, top = 10.dp, bottom = 10.dp, end = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = tint,
-                modifier = Modifier.size(24.dp)
-            )
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(tint.copy(alpha = 0.14f), RoundedCornerShape(12.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
+            }
             Spacer(Modifier.size(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
                     entry.originalName,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                // Compression jobs report bytes saved; conversions (no savings)
-                // report the produced file's size instead of a misleading "-0B".
-                if (entry.savings > 0) {
+                Text(
+                    meta,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (entry.savings > 0) {
+                Surface(
+                    shape = CircleShape,
+                    color = NexGreen.copy(alpha = 0.14f),
+                    modifier = Modifier.padding(end = 2.dp)
+                ) {
                     Text(
-                        "-" + FormatUtils.formatBytesCompact(entry.savings),
+                        "−" + FormatUtils.formatBytesCompact(entry.savings),
                         style = MaterialTheme.typography.labelLarge,
-                        color = NexGreen
-                    )
-                } else {
-                    Text(
-                        FormatUtils.formatBytesCompact(entry.outputSize),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = NexGreen,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                     )
                 }
             }
-            IconButton(onClick = onRename, modifier = Modifier.size(40.dp)) {
-                Icon(
-                    Icons.Filled.DriveFileRenameOutline,
-                    contentDescription = "Rename",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-            IconButton(onClick = onShare, modifier = Modifier.size(40.dp)) {
-                Icon(
-                    Icons.Outlined.IosShare,
-                    contentDescription = "Share",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-            IconButton(onClick = onDelete, modifier = Modifier.size(40.dp)) {
-                Icon(
-                    Icons.Filled.Close,
-                    contentDescription = "Delete",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp)
-                )
+            Box {
+                IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(40.dp)) {
+                    Icon(
+                        Icons.Filled.MoreVert,
+                        contentDescription = "More actions",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Rename") },
+                        leadingIcon = { Icon(Icons.Filled.DriveFileRenameOutline, contentDescription = null) },
+                        onClick = { menuOpen = false; onRename() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Download a copy") },
+                        leadingIcon = { Icon(Icons.Outlined.FileDownload, contentDescription = null) },
+                        onClick = { menuOpen = false; onDownload() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Share") },
+                        leadingIcon = { Icon(Icons.Outlined.IosShare, contentDescription = null) },
+                        onClick = { menuOpen = false; onShare() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Delete") },
+                        leadingIcon = { Icon(Icons.Outlined.DeleteOutline, contentDescription = null) },
+                        onClick = { menuOpen = false; onDelete() }
+                    )
+                }
             }
         }
     }
@@ -770,23 +875,30 @@ private fun HistoryRow(
 private fun EmptyHistory() {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
         )
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(24.dp),
+            modifier = Modifier.fillMaxWidth().padding(28.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            Icon(
+                Icons.Filled.Inventory2,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                modifier = Modifier.size(34.dp)
+            )
+            Spacer(Modifier.height(10.dp))
             Text(
-                "No conversions yet",
+                "Nothing here yet",
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                "Compress a PDF or convert images to see your savings here.",
+                "Compress, convert or sign a file and it'll show up here.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -807,8 +919,7 @@ private fun NexDrawerSheet(
     onMergePdf: () -> Unit,
     onSplitPdf: () -> Unit,
     onProtectPdf: () -> Unit,
-    onlineConfigured: Boolean,
-    onOnlineConversion: (OnlineConversion) -> Unit
+    onConvertDocument: (OnlineConversion) -> Unit
 ) {
     ModalDrawerSheet {
         Column(Modifier.verticalScroll(rememberScrollState())) {
@@ -918,24 +1029,13 @@ private fun NexDrawerSheet(
             )
 
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
-            DrawerSectionLabel("More conversions")
+            DrawerSectionLabel("Convert documents")
             OnlineConversion.entries.forEach { conversion ->
                 NavigationDrawerItem(
                     label = { Text(conversion.title) },
                     icon = { Icon(Icons.Filled.Description, contentDescription = null) },
-                    badge = {
-                        Text(
-                            when {
-                                conversion.offline -> "On-device"
-                                onlineConfigured -> "Online"
-                                else -> "Needs key"
-                            },
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    },
                     selected = false,
-                    onClick = { onOnlineConversion(conversion) },
+                    onClick = { onConvertDocument(conversion) },
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
             }
