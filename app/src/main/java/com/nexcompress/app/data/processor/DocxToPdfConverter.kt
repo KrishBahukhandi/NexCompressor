@@ -208,13 +208,7 @@ class DocxToPdfConverter(
             }
             if (p.eventType != XmlPullParser.START_TAG) continue
             when (p.name) {
-                "pStyle" -> heading = when {
-                    attr(p, "val")?.contains("Heading1") == true -> 1
-                    attr(p, "val")?.contains("Title") == true -> 1
-                    attr(p, "val")?.contains("Heading2") == true -> 2
-                    attr(p, "val")?.contains("Heading3") == true -> 3
-                    else -> heading
-                }
+                "pStyle" -> heading = docxHeadingLevelOf(attr(p, "val")) ?: heading
                 "numPr" -> bullet = true
                 "jc" -> align = when (attr(p, "val")) {
                     "center" -> Layout.Alignment.ALIGN_CENTER
@@ -520,5 +514,24 @@ class DocxToPdfConverter(
             writer.advance(drawHeight)
         }
         writer.advance(6f)
+    }
+}
+
+/**
+ * Maps a Word paragraph style id to a render heading level (1..3), or null for
+ * body text. Matched on the style's numeric heading level rather than a loose
+ * substring, so "Subtitle" stays body and "Heading10" does not masquerade as
+ * Heading 1. Exposed (internal) so it can be unit-tested directly.
+ */
+internal fun docxHeadingLevelOf(styleVal: String?): Int? {
+    val v = styleVal?.lowercase() ?: return null
+    if (v == "title") return 1
+    // Word uses "Heading1" / "heading 1"; capture the level digit after "heading".
+    val level = Regex("heading\\s*(\\d+)").find(v)?.groupValues?.get(1)?.toIntOrNull()
+    return when {
+        level == null || level < 1 -> null
+        level == 1 -> 1
+        level == 2 -> 2
+        else -> 3 // level 3+ (incl. non-standard Heading10) → generic heading, never H1
     }
 }

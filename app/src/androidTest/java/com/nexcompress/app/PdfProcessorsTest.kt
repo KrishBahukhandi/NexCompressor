@@ -223,6 +223,76 @@ class PdfProcessorsTest {
         }
     }
 
+    /**
+     * The 180° and 270° placement matrices in PdfSigner are separate formulas
+     * from the 90° one, so they need their own coverage. PdfRenderer renders the
+     * page upright, so a top-left placement must land top-left for EVERY /Rotate.
+     */
+    @Test
+    fun sign_rotated180And270_landWhereTheUserPlacedIt() = runBlocking<Unit> {
+        for (rot in listOf(180, 270)) {
+            val fixture = buildRotatedPdf(rotation = rot)
+            try {
+                val input = PickedFile(
+                    Uri.fromFile(fixture).toString(), fixture.name, fixture.length(), FileType.PDF
+                )
+                val placement = SignaturePlacement(
+                    pageIndex = 0, left = 0.10f, top = 0.10f, width = 0.30f, height = 0.15f
+                )
+                val item = PdfSigner(context, storage)
+                    .sign(input, redBlockPng(), placement, "test_sign_$rot")
+                    .items.single().also { outputs.add(it) }
+
+                val rendered = renderFirstPage(item.uri)
+                try {
+                    assertTrue(
+                        "rot=$rot: ink missing where the user placed it (top-left)",
+                        redRatio(rendered, 0.13f, 0.13f, 0.24f, 0.09f) > 0.5f
+                    )
+                    assertEquals(
+                        "rot=$rot: ink leaked to the opposite corner",
+                        0f, redRatio(rendered, 0.60f, 0.60f, 0.30f, 0.30f)
+                    )
+                } finally {
+                    rendered.recycle()
+                }
+            } finally {
+                fixture.delete()
+            }
+        }
+    }
+
+    /**
+     * The compression profiles must actually differ: a more aggressive profile
+     * (lower quality + smaller image cap) has to produce a smaller file, else the
+     * user's profile choice is meaningless.
+     */
+    @Test
+    fun compress_moreAggressiveProfileYieldsSmallerFile() = runBlocking<Unit> {
+        val fixture = buildFixturePdf(pages = 2, photoOnFirstPage = true)
+        try {
+            val input = PickedFile(
+                Uri.fromFile(fixture).toString(), fixture.name, fixture.length(), FileType.PDF
+            )
+            val compressor = PdfCompressor(context, storage)
+            val balanced = compressor.compress(input, CompressionProfile.BALANCED, "t_bal")
+                .items.single().also { outputs.add(it) }
+            val highFidelity = compressor.compress(input, CompressionProfile.HIGH_FIDELITY, "t_hi")
+                .items.single().also { outputs.add(it) }
+
+            assertTrue("both profiles should shrink the image-heavy fixture",
+                balanced.outputSize < balanced.originalSize &&
+                    highFidelity.outputSize < highFidelity.originalSize)
+            assertTrue(
+                "BALANCED (${balanced.outputSize}) must be smaller than " +
+                    "HIGH_FIDELITY (${highFidelity.outputSize}) — profile knobs ignored?",
+                balanced.outputSize < highFidelity.outputSize
+            )
+        } finally {
+            fixture.delete()
+        }
+    }
+
     // ------------------------------------------------------------------ //
     // Fixtures & helpers                                                 //
     // ------------------------------------------------------------------ //
