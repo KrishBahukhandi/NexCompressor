@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.Draw
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MergeType
@@ -120,6 +121,7 @@ fun HomeScreen(
     onOpenSplitPdf: () -> Unit,
     onOpenProtectPdf: () -> Unit,
     onOpenSignPdf: () -> Unit,
+    onOpenAnnotatePdf: () -> Unit,
     onOpenProcessing: () -> Unit,
     homeViewModel: HomeViewModel = viewModel(factory = AppViewModelProvider.Factory)
 ) {
@@ -314,6 +316,17 @@ fun HomeScreen(
             onOpenSignPdf()
         }
     }
+    val annotatePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            compressionViewModel.onAnnotatePicked(uri)
+            onOpenAnnotatePdf()
+        }
+    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -342,6 +355,10 @@ fun HomeScreen(
                 onSignPdf = {
                     scope.launch { drawerState.close() }
                     runCatching { signPicker.launch(arrayOf("application/pdf")) }
+                },
+                onAnnotatePdf = {
+                    scope.launch { drawerState.close() }
+                    runCatching { annotatePicker.launch(arrayOf("application/pdf")) }
                 },
                 onImageStudio = {
                     scope.launch { drawerState.close() }
@@ -914,6 +931,7 @@ private fun NexDrawerSheet(
     onImagesToPdf: () -> Unit,
     onTxtToPdf: () -> Unit,
     onSignPdf: () -> Unit,
+    onAnnotatePdf: () -> Unit,
     onImageStudio: () -> Unit,
     onPdfPages: () -> Unit,
     onMergePdf: () -> Unit,
@@ -990,6 +1008,20 @@ private fun NexDrawerSheet(
                 icon = { Icon(Icons.Filled.Draw, contentDescription = null) },
                 selected = false,
                 onClick = onSignPdf,
+                modifier = Modifier.padding(horizontal = 12.dp)
+            )
+            NavigationDrawerItem(
+                label = { Text("Annotate PDF") },
+                icon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+                badge = {
+                    Text(
+                        "New",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                },
+                selected = false,
+                onClick = onAnnotatePdf,
                 modifier = Modifier.padding(horizontal = 12.dp)
             )
             NavigationDrawerItem(

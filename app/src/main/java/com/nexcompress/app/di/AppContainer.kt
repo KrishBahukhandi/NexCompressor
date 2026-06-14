@@ -14,6 +14,7 @@ import com.nexcompress.app.data.processor.PdfCompressor
 import com.nexcompress.app.data.processor.PdfMerger
 import com.nexcompress.app.data.processor.PdfPageEditor
 import com.nexcompress.app.data.processor.PdfProtector
+import com.nexcompress.app.data.processor.PdfAnnotator
 import com.nexcompress.app.data.processor.PdfSigner
 import com.nexcompress.app.data.processor.PdfSplitter
 import com.nexcompress.app.data.processor.PdfToDocxConverter
@@ -58,6 +59,7 @@ class AppContainer(context: Context) {
     val pdfSplitter: PdfSplitter by lazy { PdfSplitter(appContext, fileStorageManager) }
     val pdfProtector: PdfProtector by lazy { PdfProtector(appContext, fileStorageManager) }
     val pdfSigner: PdfSigner by lazy { PdfSigner(appContext, fileStorageManager) }
+    val pdfAnnotator: PdfAnnotator by lazy { PdfAnnotator(appContext, fileStorageManager) }
 
     // --- On-device Office conversions (docx/xlsx/pptx are zip+XML) ---
     val officeConverter: OfficeConverter by lazy {

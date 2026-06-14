@@ -16,6 +16,7 @@ object Destinations {
     const val SPLIT_PDF = "split_pdf"
     const val PROTECT_PDF = "protect_pdf"
     const val SIGN_PDF = "sign_pdf"
+    const val ANNOTATE_PDF = "annotate_pdf"
 
     const val PROCESSING = "processing"
     const val RESULTS = "results"
