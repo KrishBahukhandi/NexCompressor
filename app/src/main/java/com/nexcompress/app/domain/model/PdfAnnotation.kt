@@ -12,6 +12,9 @@ sealed interface PdfAnnotation {
     val pageIndex: Int
 }
 
+/** Font family choices for text boxes — all built-in, so no fonts are bundled. */
+enum class AnnotationFont { SANS, SERIF, MONO }
+
 /** A typed text box anchored at its top-left. */
 data class TextAnnotation(
     override val pageIndex: Int,
@@ -20,7 +23,9 @@ data class TextAnnotation(
     val top: Float,
     /** Text size as a fraction of page height (e.g. 0.03 ≈ 3% of page height). */
     val fontFrac: Float,
-    val colorArgb: Int
+    val colorArgb: Int,
+    val font: AnnotationFont = AnnotationFont.SANS,
+    val bold: Boolean = false
 ) : PdfAnnotation
 
 /** A freehand stroke (pen) or translucent highlighter swipe. */

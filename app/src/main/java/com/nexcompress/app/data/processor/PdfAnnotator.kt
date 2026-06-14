@@ -5,7 +5,9 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.Typeface
 import android.net.Uri
+import com.nexcompress.app.domain.model.AnnotationFont
 import com.nexcompress.app.domain.model.CompressionException
 import com.nexcompress.app.domain.model.CompressionResult
 import com.nexcompress.app.domain.model.FileType
@@ -172,10 +174,15 @@ class PdfAnnotator(
 
     private fun drawText(canvas: Canvas, ann: TextAnnotation, w: Float, h: Float) {
         if (ann.text.isBlank()) return
+        val base = when (ann.font) {
+            AnnotationFont.SANS -> Typeface.SANS_SERIF
+            AnnotationFont.SERIF -> Typeface.SERIF
+            AnnotationFont.MONO -> Typeface.MONOSPACE
+        }
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = ann.colorArgb
             textSize = (ann.fontFrac * h).coerceAtLeast(6f)
-            isFakeBoldText = false
+            typeface = Typeface.create(base, if (ann.bold) Typeface.BOLD else Typeface.NORMAL)
         }
         val x = ann.left * w
         var y = ann.top * h - paint.ascent() // first baseline below the top anchor

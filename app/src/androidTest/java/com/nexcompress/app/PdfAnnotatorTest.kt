@@ -121,7 +121,9 @@ class PdfAnnotatorTest {
                     left = 0.15f,
                     top = 0.80f, // lower area, away from the page's own top text
                     fontFrac = 0.05f,
-                    colorArgb = Color.rgb(220, 0, 0)
+                    colorArgb = Color.rgb(220, 0, 0),
+                    font = com.nexcompress.app.domain.model.AnnotationFont.SERIF,
+                    bold = true
                 )
             )
             val item = PdfAnnotator(context, storage)
