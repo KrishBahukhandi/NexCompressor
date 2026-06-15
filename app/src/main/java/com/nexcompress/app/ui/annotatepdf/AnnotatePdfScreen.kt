@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -31,6 +32,8 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.Highlight
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material3.Button
@@ -44,6 +47,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -79,12 +83,14 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.nexcompress.app.domain.model.AnnotationFont
+import com.nexcompress.app.domain.model.ImageAnnotation
 import com.nexcompress.app.domain.model.InkAnnotation
 import com.nexcompress.app.domain.model.NormPoint
 import com.nexcompress.app.domain.model.PdfAnnotation
 import com.nexcompress.app.domain.model.TextAnnotation
 import com.nexcompress.app.ui.CompressionViewModel
 import com.nexcompress.app.ui.components.SectionLabel
+import com.nexcompress.app.ui.components.SignaturePadDialog
 import com.nexcompress.app.ui.components.rememberPdfRenderer
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
@@ -94,7 +100,12 @@ private enum class Tool { PEN, HIGHLIGHT, TEXT }
 
 private val PEN_WIDTH_FRAC = 0.004f
 private val HIGHLIGHT_WIDTH_FRAC = 0.03f
-private val TEXT_FONT_FRAC = 0.035f
+private const val TEXT_MAX_WIDTH_FRAC = 0.8f
+private const val DEFAULT_FONT_PT = 16
+private const val MIN_FONT_PT = 6
+private const val MAX_FONT_PT = 96
+/** Fallback page height (Letter, pt) used before the real page size loads. */
+private const val FALLBACK_PAGE_PT = 792f
 
 private val SWATCHES = listOf(
     Color(0xFF111827), // near-black
@@ -118,9 +129,15 @@ private data class TextItem(
     val font: AnnotationFont,
     val bold: Boolean
 ) : AnnItem
-
-/** Sizes offered in the text dialog (fraction of page height). */
-private val TEXT_SIZES = listOf("S" to 0.025f, "M" to 0.035f, "L" to 0.05f)
+private data class ImageItem(
+    val id: Long,
+    override val pageIndex: Int,
+    val png: ByteArray,
+    val aspect: Float, // width / height of the image in px
+    val left: Float,
+    val top: Float,
+    val widthFrac: Float
+) : AnnItem
 
 /** Compose font family for an annotation font. */
 private fun AnnotationFont.toFontFamily(): FontFamily = when (this) {
@@ -153,8 +170,15 @@ fun AnnotatePdfScreen(
     var nextId by remember { mutableStateOf(0L) }
     var pendingTextAt by remember { mutableStateOf<NormPoint?>(null) }
     var editingId by remember { mutableStateOf<Long?>(null) }
+    var showSignPad by remember { mutableStateOf(false) }
+    var pagePointHeight by remember { mutableIntStateOf(0) }
 
     val pagePreview by produceStatePreview(renderer, selectedPage)
+    LaunchedEffect(renderer, selectedPage) {
+        pagePointHeight = withContext(Dispatchers.IO) {
+            renderer?.visualPointHeight(selectedPage) ?: 0
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -256,7 +280,24 @@ fun AnnotatePdfScreen(
                                 items[idx] = t.copy(left = nl, top = nt)
                             }
                         },
-                        onEditText = { id -> editingId = id }
+                        onEditText = { id -> editingId = id },
+                        onMoveImage = { id, nl, nt ->
+                            val idx = items.indexOfFirst { it is ImageItem && it.id == id }
+                            if (idx >= 0) {
+                                val im = items[idx] as ImageItem
+                                items[idx] = im.copy(left = nl, top = nt)
+                            }
+                        },
+                        onResizeImage = { id, nw ->
+                            val idx = items.indexOfFirst { it is ImageItem && it.id == id }
+                            if (idx >= 0) {
+                                val im = items[idx] as ImageItem
+                                items[idx] = im.copy(widthFrac = nw)
+                            }
+                        },
+                        onDeleteImage = { id ->
+                            items.removeAll { it is ImageItem && it.id == id }
+                        }
                     )
                 }
             }
@@ -289,13 +330,23 @@ fun AnnotatePdfScreen(
 
             Text(
                 when (tool) {
-                    Tool.TEXT -> "Tap the page to add a text box. Drag a box to move it."
+                    Tool.TEXT -> "Tap the page to add a text box. Tap a box to edit it, drag to move."
                     Tool.HIGHLIGHT -> "Swipe across the page to highlight."
                     Tool.PEN -> "Draw on the page with your finger."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+
+            OutlinedButton(
+                onClick = { showSignPad = true },
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Icon(Icons.Filled.Draw, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.size(8.dp))
+                Text("Add signature")
+            }
 
             OutlinedTextField(
                 value = viewModel.annotateName,
@@ -342,9 +393,11 @@ fun AnnotatePdfScreen(
 
     // Add-new text dialog.
     pendingTextAt?.let { at ->
+        val ph = if (pagePointHeight > 0) pagePointHeight.toFloat() else FALLBACK_PAGE_PT
         TextStyleDialog(
-            initial = TextDraft("", AnnotationFont.SANS, false, TEXT_FONT_FRAC, color.toArgb()),
+            initial = TextDraft("", AnnotationFont.SANS, false, DEFAULT_FONT_PT / ph, color.toArgb()),
             isEdit = false,
+            pagePointHeight = pagePointHeight,
             onConfirm = { draft ->
                 items.add(
                     TextItem(
@@ -376,6 +429,7 @@ fun AnnotatePdfScreen(
             TextStyleDialog(
                 initial = TextDraft(item.text, item.font, item.bold, item.fontFrac, item.colorArgb),
                 isEdit = true,
+                pagePointHeight = pagePointHeight,
                 onConfirm = { draft ->
                     items[idx] = item.copy(
                         text = draft.text,
@@ -394,11 +448,35 @@ fun AnnotatePdfScreen(
             )
         }
     }
+
+    // Draw-a-signature pad (same component as Sign PDF); places a movable image.
+    if (showSignPad) {
+        SignaturePadDialog(
+            onDismiss = { showSignPad = false },
+            onDone = { png, aspect ->
+                showSignPad = false
+                items.add(
+                    ImageItem(
+                        id = nextId++,
+                        pageIndex = selectedPage,
+                        png = png,
+                        aspect = aspect,
+                        left = 0.30f,
+                        top = 0.40f,
+                        widthFrac = 0.40f
+                    )
+                )
+            }
+        )
+    }
 }
 
 private fun AnnItem.toAnnotation(): PdfAnnotation = when (this) {
     is InkItem -> ink
-    is TextItem -> TextAnnotation(pageIndex, text, left, top, fontFrac, colorArgb, font, bold)
+    is TextItem -> TextAnnotation(
+        pageIndex, text, left, top, fontFrac, colorArgb, font, bold, TEXT_MAX_WIDTH_FRAC
+    )
+    is ImageItem -> ImageAnnotation(pageIndex, png, left, top, widthFrac)
 }
 
 @Composable
@@ -426,7 +504,10 @@ private fun AnnotationCanvas(
     onAddInk: (List<NormPoint>, Boolean) -> Unit,
     onTapForText: (NormPoint) -> Unit,
     onMoveText: (Long, Float, Float) -> Unit,
-    onEditText: (Long) -> Unit
+    onEditText: (Long) -> Unit,
+    onMoveImage: (Long, Float, Float) -> Unit,
+    onResizeImage: (Long, Float) -> Unit,
+    onDeleteImage: (Long) -> Unit
 ) {
     var boxSize by remember { mutableStateOf(IntSize.Zero) }
     val current = remember { mutableStateListOf<Offset>() } // in-progress stroke (px)
@@ -515,14 +596,101 @@ private fun AnnotationCanvas(
             )
         }
 
-        // Draggable text boxes for this page (topmost).
+        // Draggable boxes for this page (topmost): signatures, then text.
         if (boxSize.width > 0) {
+            items.forEach { item ->
+                if (item is ImageItem && item.pageIndex == selectedPage) {
+                    ImageOverlayBox(item, boxSize, onMoveImage, onResizeImage, onDeleteImage)
+                }
+            }
             items.forEach { item ->
                 if (item is TextItem && item.pageIndex == selectedPage) {
                     DraggableText(item, boxSize, onMoveText, onEditText)
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ImageOverlayBox(
+    item: ImageItem,
+    boxSize: IntSize,
+    onMove: (Long, Float, Float) -> Unit,
+    onResize: (Long, Float) -> Unit,
+    onDelete: (Long) -> Unit
+) {
+    val density = LocalDensity.current
+    val bw = boxSize.width.toFloat()
+    val bh = boxSize.height.toFloat()
+    val placement by rememberUpdatedState(Triple(item.left, item.top, item.widthFrac))
+    val imageBitmap = remember(item.png) {
+        runCatching {
+            android.graphics.BitmapFactory.decodeByteArray(item.png, 0, item.png.size).asImageBitmap()
+        }.getOrNull()
+    }
+    val wPx = item.widthFrac * bw
+    val hPx = wPx / item.aspect.coerceAtLeast(0.01f)
+    Box(
+        Modifier
+            .offset { IntOffset((item.left * bw).roundToInt(), (item.top * bh).roundToInt()) }
+            .size(with(density) { wPx.toDp() }, with(density) { hPx.toDp() })
+            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+            .pointerInput(item.id, boxSize) {
+                detectDragGestures { change, drag ->
+                    change.consume()
+                    val (l, t, _) = placement
+                    onMove(
+                        item.id,
+                        (l + drag.x / bw).coerceIn(0f, 1f),
+                        (t + drag.y / bh).coerceIn(0f, 1f)
+                    )
+                }
+            }
+    ) {
+        if (imageBitmap != null) {
+            Image(
+                bitmap = imageBitmap,
+                contentDescription = "Signature",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+        // Delete handle (top-start).
+        Box(
+            Modifier
+                .align(Alignment.TopStart)
+                .offset(x = (-10).dp, y = (-10).dp)
+                .size(22.dp)
+                .background(MaterialTheme.colorScheme.error, CircleShape)
+                .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
+                .pointerInput(item.id) { detectTapGestures { onDelete(item.id) } },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Filled.Close,
+                contentDescription = "Remove",
+                tint = MaterialTheme.colorScheme.onError,
+                modifier = Modifier.size(14.dp)
+            )
+        }
+        // Resize handle (bottom-end).
+        Box(
+            Modifier
+                .align(Alignment.BottomEnd)
+                .offset(x = 10.dp, y = 10.dp)
+                .size(22.dp)
+                .background(MaterialTheme.colorScheme.primary, CircleShape)
+                .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
+                .pointerInput(item.id, boxSize) {
+                    detectDragGestures { change, drag ->
+                        change.consume()
+                        val (l, _, w) = placement
+                        val maxW = (1f - l).coerceAtLeast(0.08f)
+                        onResize(item.id, (w + drag.x / bw).coerceIn(0.08f, maxW))
+                    }
+                }
+        )
     }
 }
 
@@ -564,7 +732,10 @@ private fun DraggableText(
             fontSize = fontSp,
             fontFamily = item.font.toFontFamily(),
             fontWeight = if (item.bold) FontWeight.Bold else FontWeight.Normal,
-            modifier = Modifier.padding(2.dp)
+            // Wrap at the same fraction the engine uses, so paragraphs match.
+            modifier = Modifier
+                .widthIn(max = with(density) { (TEXT_MAX_WIDTH_FRAC * bw).toDp() })
+                .padding(2.dp)
         )
     }
 }
@@ -627,14 +798,18 @@ private data class TextDraft(
 private fun TextStyleDialog(
     initial: TextDraft,
     isEdit: Boolean,
+    pagePointHeight: Int,
     onConfirm: (TextDraft) -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val pageHeightPt = if (pagePointHeight > 0) pagePointHeight.toFloat() else FALLBACK_PAGE_PT
     var text by remember { mutableStateOf(initial.text) }
     var font by remember { mutableStateOf(initial.font) }
     var bold by remember { mutableStateOf(initial.bold) }
-    var fontFrac by remember { mutableStateOf(initial.fontFrac) }
+    var sizePt by remember {
+        mutableStateOf((initial.fontFrac * pageHeightPt).roundToInt().coerceIn(MIN_FONT_PT, MAX_FONT_PT))
+    }
     var colorArgb by remember { mutableStateOf(initial.colorArgb) }
 
     Dialog(onDismissRequest = onDismiss) {
@@ -666,15 +841,13 @@ private fun TextStyleDialog(
                 Spacer(Modifier.height(12.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Size", style = MaterialTheme.typography.labelLarge)
-                    Spacer(Modifier.size(12.dp))
-                    TEXT_SIZES.forEach { (label, frac) ->
-                        FilterChip(
-                            selected = fontFrac == frac,
-                            onClick = { fontFrac = frac },
-                            label = { Text(label) },
-                            modifier = Modifier.padding(end = 6.dp)
-                        )
-                    }
+                    Spacer(Modifier.size(10.dp))
+                    Text(
+                        "$sizePt pt",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
                     Spacer(Modifier.weight(1f))
                     FilterChip(
                         selected = bold,
@@ -682,6 +855,12 @@ private fun TextStyleDialog(
                         label = { Text("Bold", fontWeight = FontWeight.Bold) }
                     )
                 }
+                Slider(
+                    value = sizePt.toFloat(),
+                    onValueChange = { sizePt = it.roundToInt() },
+                    valueRange = MIN_FONT_PT.toFloat()..MAX_FONT_PT.toFloat(),
+                    modifier = Modifier.fillMaxWidth()
+                )
 
                 Spacer(Modifier.height(12.dp))
                 Text("Color", style = MaterialTheme.typography.labelLarge)
@@ -714,7 +893,9 @@ private fun TextStyleDialog(
                     TextButton(onClick = onDismiss) { Text("Cancel") }
                     Spacer(Modifier.size(8.dp))
                     Button(
-                        onClick = { onConfirm(TextDraft(text, font, bold, fontFrac, colorArgb)) },
+                        onClick = {
+                            onConfirm(TextDraft(text, font, bold, sizePt / pageHeightPt, colorArgb))
+                        },
                         enabled = text.isNotBlank()
                     ) { Text(if (isEdit) "Save" else "Add") }
                 }

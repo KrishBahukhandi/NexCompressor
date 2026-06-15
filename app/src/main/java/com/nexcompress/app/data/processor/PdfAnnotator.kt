@@ -2,13 +2,18 @@ package com.nexcompress.app.data.processor
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.RectF
 import android.graphics.Typeface
 import android.net.Uri
+import android.text.StaticLayout
+import android.text.TextPaint
 import com.nexcompress.app.domain.model.AnnotationFont
 import com.nexcompress.app.domain.model.CompressionException
+import com.nexcompress.app.domain.model.ImageAnnotation
 import com.nexcompress.app.domain.model.CompressionResult
 import com.nexcompress.app.domain.model.FileType
 import com.nexcompress.app.domain.model.InkAnnotation
@@ -138,6 +143,7 @@ class PdfAnnotator(
             when (ann) {
                 is InkAnnotation -> drawInk(canvas, ann, w, h)
                 is TextAnnotation -> drawText(canvas, ann, w, h)
+                is ImageAnnotation -> drawImage(canvas, ann, w, h)
             }
         }
     }
@@ -179,17 +185,38 @@ class PdfAnnotator(
             AnnotationFont.SERIF -> Typeface.SERIF
             AnnotationFont.MONO -> Typeface.MONOSPACE
         }
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = ann.colorArgb
             textSize = (ann.fontFrac * h).coerceAtLeast(6f)
             typeface = Typeface.create(base, if (ann.bold) Typeface.BOLD else Typeface.NORMAL)
         }
-        val x = ann.left * w
-        var y = ann.top * h - paint.ascent() // first baseline below the top anchor
-        val lineHeight = paint.descent() - paint.ascent()
-        for (line in ann.text.split('\n')) {
-            canvas.drawText(line, x, y, paint)
-            y += lineHeight
+        // Wrap within maxWidthFrac of the page so paragraphs flow onto multiple
+        // lines (StaticLayout also honors any explicit newlines the user typed).
+        val wrapWidth = (ann.maxWidthFrac * w).toInt().coerceAtLeast(1)
+        val layout = StaticLayout.Builder
+            .obtain(ann.text, 0, ann.text.length, paint, wrapWidth)
+            .setIncludePad(false)
+            .build()
+        canvas.save()
+        canvas.translate(ann.left * w, ann.top * h)
+        layout.draw(canvas)
+        canvas.restore()
+    }
+
+    private fun drawImage(canvas: Canvas, ann: ImageAnnotation, w: Float, h: Float) {
+        val bmp = try {
+            BitmapFactory.decodeByteArray(ann.png, 0, ann.png.size)
+        } catch (e: Exception) {
+            null
+        } ?: return
+        try {
+            val drawW = (ann.widthFrac * w).coerceAtLeast(1f)
+            val drawH = drawW * bmp.height / bmp.width.coerceAtLeast(1)
+            val l = ann.left * w
+            val t = ann.top * h
+            canvas.drawBitmap(bmp, null, RectF(l, t, l + drawW, t + drawH), null)
+        } finally {
+            bmp.recycle()
         }
     }
 
