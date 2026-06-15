@@ -11,6 +11,7 @@ import com.nexcompress.app.data.processor.PdfAnnotator
 import com.nexcompress.app.data.processor.PdfFiles
 import com.nexcompress.app.data.processor.PdfPageRenderer
 import com.nexcompress.app.domain.model.FileType
+import com.nexcompress.app.domain.model.ImageAnnotation
 import com.nexcompress.app.domain.model.InkAnnotation
 import com.nexcompress.app.domain.model.NormPoint
 import com.nexcompress.app.domain.model.OutputItem
@@ -23,6 +24,7 @@ import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
 import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
 import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
 import com.tom_roush.pdfbox.text.PDFTextStripper
+import java.io.ByteArrayOutputStream
 import java.io.File
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -135,6 +137,45 @@ class PdfAnnotatorTest {
                 assertTrue(
                     "text note not rendered where placed",
                     redRatio(rendered, 0.12f, 0.76f, 0.5f, 0.12f) > 0.01f
+                )
+            } finally {
+                rendered.recycle()
+            }
+        } finally {
+            pdf.delete()
+        }
+    }
+
+    @Test
+    fun annotate_placesSignatureImageAtPlacement() = runBlocking<Unit> {
+        val pdf = makeTextPdf(listOf("page one"))
+        try {
+            val input = PickedFile(Uri.fromFile(pdf).toString(), pdf.name, pdf.length(), FileType.PDF)
+            // A small red square PNG standing in for a drawn signature.
+            val png = ByteArrayOutputStream().use { baos ->
+                val b = Bitmap.createBitmap(200, 100, Bitmap.Config.ARGB_8888)
+                b.eraseColor(Color.rgb(220, 0, 0))
+                b.compress(Bitmap.CompressFormat.PNG, 100, baos)
+                b.recycle()
+                baos.toByteArray()
+            }
+            val item = PdfAnnotator(context, storage)
+                .annotate(
+                    input,
+                    listOf(ImageAnnotation(0, png, left = 0.25f, top = 0.55f, widthFrac = 0.4f)),
+                    "test_sig"
+                )
+                .items.single().also { outputs.add(it) }
+
+            val rendered = renderPage(item.uri, 0)
+            try {
+                assertTrue(
+                    "signature image missing where it was placed",
+                    redRatio(rendered, 0.27f, 0.57f, 0.34f, 0.10f) > 0.4f
+                )
+                assertEquals(
+                    "signature bled into an untouched corner",
+                    0f, redRatio(rendered, 0.0f, 0.0f, 0.15f, 0.15f)
                 )
             } finally {
                 rendered.recycle()

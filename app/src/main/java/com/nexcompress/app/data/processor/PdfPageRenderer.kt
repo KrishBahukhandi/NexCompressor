@@ -27,6 +27,17 @@ class PdfPageRenderer(context: Context, uri: Uri) : Closeable {
 
     val pageCount: Int get() = renderer.pageCount
 
+    /**
+     * The page's visible (upright) height in PDF points (1/72"). Lets callers map
+     * a point font size to a fraction of page height. Returns 0 on failure.
+     */
+    fun visualPointHeight(index: Int): Int {
+        synchronized(lock) {
+            if (index < 0 || index >= renderer.pageCount) return 0
+            return runCatching { renderer.openPage(index).use { it.height } }.getOrDefault(0)
+        }
+    }
+
     /** Renders [index] so its longest edge is ~[targetLongEdgePx] px, white-backed. */
     fun renderPage(index: Int, targetLongEdgePx: Int): Bitmap? {
         synchronized(lock) {
