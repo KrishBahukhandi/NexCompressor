@@ -21,6 +21,7 @@ import com.nexcompress.app.ui.pdftoimage.PdfToImageConfigScreen
 import com.nexcompress.app.ui.processing.ProcessingScreen
 import com.nexcompress.app.ui.protectpdf.ProtectPdfScreen
 import com.nexcompress.app.ui.results.ResultsScreen
+import com.nexcompress.app.ui.annotatepdf.AnnotatePdfScreen
 import com.nexcompress.app.ui.signpdf.SignPdfScreen
 import com.nexcompress.app.ui.splitpdf.SplitPdfScreen
 import com.nexcompress.app.ui.txttopdf.TxtToPdfConfigScreen
@@ -62,6 +63,7 @@ fun NexCompressNavGraph(
                 onOpenSplitPdf = { navController.navigate(Destinations.SPLIT_PDF) },
                 onOpenProtectPdf = { navController.navigate(Destinations.PROTECT_PDF) },
                 onOpenSignPdf = { navController.navigate(Destinations.SIGN_PDF) },
+                onOpenAnnotatePdf = { navController.navigate(Destinations.ANNOTATE_PDF) },
                 onOpenProcessing = { navController.navigate(Destinations.PROCESSING) }
             )
         }
@@ -159,6 +161,15 @@ fun NexCompressNavGraph(
         // Sign PDF
         composable(Destinations.SIGN_PDF) {
             SignPdfScreen(
+                viewModel = compressionViewModel,
+                onBack = { navController.popBackStack() },
+                onStartProcessing = { navController.navigate(Destinations.PROCESSING) }
+            )
+        }
+
+        // Annotate PDF (markup editor)
+        composable(Destinations.ANNOTATE_PDF) {
+            AnnotatePdfScreen(
                 viewModel = compressionViewModel,
                 onBack = { navController.popBackStack() },
                 onStartProcessing = { navController.navigate(Destinations.PROCESSING) }
