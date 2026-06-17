@@ -191,8 +191,13 @@ fun AnnotatePdfScreen(
                 },
                 actions = {
                     IconButton(
-                        onClick = { if (items.isNotEmpty()) items.removeAt(items.lastIndex) },
-                        enabled = items.isNotEmpty()
+                        // Undo the last markup placed on the page in view, so it never
+                        // silently removes something from a different (off-screen) page.
+                        onClick = {
+                            val idx = items.indexOfLast { it.pageIndex == selectedPage }
+                            if (idx >= 0) items.removeAt(idx)
+                        },
+                        enabled = items.any { it.pageIndex == selectedPage }
                     ) {
                         Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo")
                     }
