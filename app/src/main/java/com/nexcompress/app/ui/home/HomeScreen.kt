@@ -3,6 +3,7 @@ package com.nexcompress.app.ui.home
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,6 +27,8 @@ import androidx.compose.material.icons.automirrored.filled.TextSnippet
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Collections
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Inventory2
@@ -67,6 +70,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -82,7 +86,6 @@ import com.nexcompress.app.domain.model.FileType
 import com.nexcompress.app.domain.util.FormatUtils
 import com.nexcompress.app.ui.AppViewModelProvider
 import com.nexcompress.app.ui.CompressionViewModel
-import com.nexcompress.app.ui.components.SectionLabel
 import com.nexcompress.app.ui.theme.NexGreen
 import com.nexcompress.app.ui.theme.NexIndigo
 import com.nexcompress.app.ui.theme.NexViolet
@@ -94,6 +97,8 @@ import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -101,10 +106,14 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 
+/** Bottom-nav tabs on the main screen: the tools dashboard vs. the file history. */
+private enum class HomeTab { HOME, HISTORY }
+
 /**
  * Screen 1 — Primary Feature Dashboard.
- * Two action tiles, the cumulative performance ledger, a scrollable history log
- * backed by Room, and the anchored AdMob banner at the base.
+ * A bottom navigation bar switches between the tools dashboard (action tiles +
+ * performance ledger) and the History tab (the scrollable file log backed by
+ * Room). The anchored AdMob banner sits above the navigation bar.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -128,6 +137,7 @@ fun HomeScreen(
     val context = LocalContext.current
     val uiState by homeViewModel.uiState.collectAsStateWithLifecycle()
     var renamingEntry by remember { mutableStateOf<CompressionHistory?>(null) }
+    var selectedTab by remember { mutableStateOf(HomeTab.HOME) }
     var pendingOnline by remember { mutableStateOf<OnlineConversion?>(null) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -393,7 +403,7 @@ fun HomeScreen(
             TopAppBar(
                 title = {
                     Text(
-                        "NexCompress",
+                        if (selectedTab == HomeTab.HOME) "NexCompress" else "History",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
                     )
@@ -411,9 +421,25 @@ fun HomeScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
-            // ===== MONETIZATION HOOK — Anchor Banner (base of Screen 1) =====
-            Surface(tonalElevation = 3.dp) {
-                BannerAd(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp))
+            Column {
+                // ===== MONETIZATION HOOK — Anchor Banner (base of Screen 1) =====
+                Surface(tonalElevation = 3.dp) {
+                    BannerAd(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp))
+                }
+                NavigationBar {
+                    NavigationBarItem(
+                        selected = selectedTab == HomeTab.HOME,
+                        onClick = { selectedTab = HomeTab.HOME },
+                        icon = { Icon(Icons.Filled.Home, contentDescription = null) },
+                        label = { Text("Home") }
+                    )
+                    NavigationBarItem(
+                        selected = selectedTab == HomeTab.HISTORY,
+                        onClick = { selectedTab = HomeTab.HISTORY },
+                        icon = { Icon(Icons.Filled.History, contentDescription = null) },
+                        label = { Text("History") }
+                    )
+                }
             }
         }
     ) { innerPadding ->
@@ -426,6 +452,7 @@ fun HomeScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            if (selectedTab == HomeTab.HOME) {
             item {
                 Column(Modifier.padding(top = 6.dp, bottom = 8.dp)) {
                     Text(
@@ -490,10 +517,8 @@ fun HomeScreen(
 
             item { Spacer(Modifier.height(6.dp)) }
             item { LedgerCard(totalSavings = uiState.totalSavings, totalCount = uiState.totalCount) }
-
-            item { Spacer(Modifier.height(6.dp)) }
-            item { SectionLabel("Recent files") }
-
+            } else {
+            item { Spacer(Modifier.height(2.dp)) }
             if (uiState.history.isEmpty()) {
                 item { EmptyHistory() }
             } else {
@@ -522,6 +547,7 @@ fun HomeScreen(
                         onDelete = { homeViewModel.deleteEntry(entry) }
                     )
                 }
+            }
             }
         }
     }
@@ -616,12 +642,21 @@ private fun FeatureTile(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // Accent edge: brightest along the top, fading down the sides to a soft outline.
+    val accentBorder = Brush.verticalGradient(
+        colors = listOf(
+            accent,
+            accent.copy(alpha = 0.30f),
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+        )
+    )
     Card(
         onClick = onClick,
         modifier = modifier.height(156.dp),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = BorderStroke(1.5.dp, accentBorder)
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -673,7 +708,8 @@ private fun MoreToolsRow(onClick: () -> Unit) {
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(14.dp),
