@@ -91,8 +91,15 @@ class FileStorageManager(private val context: Context) {
         val uri = resolver.insert(collection, pending)
             ?: throw IOException("Could not create the output file in Downloads.")
 
-        resolver.openOutputStream(uri)?.use(writer)
-            ?: throw IOException("Could not open the output stream.")
+        try {
+            resolver.openOutputStream(uri)?.use(writer)
+                ?: throw IOException("Could not open the output stream.")
+        } catch (t: Throwable) {
+            // A failed write (corrupt input, OOM, encoder reject) would otherwise
+            // leave a half-written, still-pending entry lingering in Downloads.
+            runCatching { resolver.delete(uri, null, null) }
+            throw t
+        }
 
         val done = ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }
         resolver.update(uri, done, null, null)

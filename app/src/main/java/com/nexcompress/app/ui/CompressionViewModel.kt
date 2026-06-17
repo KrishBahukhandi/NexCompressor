@@ -175,7 +175,7 @@ class CompressionViewModel(
     fun onTxtPicked(uri: Uri) {
         viewModelScope.launch {
             val picked = withContext(Dispatchers.IO) {
-                storage.resolveMetadata(uri, FileType.PDF)
+                storage.resolveMetadata(uri, FileType.DOCUMENT)
             }
             txtInput = picked
             txtPdfName = storage.baseNameOf(picked.displayName)
