@@ -126,6 +126,7 @@ fun HomeScreen(
     onOpenSplitPdf: () -> Unit,
     onOpenProtectPdf: () -> Unit,
     onOpenAnnotatePdf: () -> Unit,
+    onOpenAbout: () -> Unit,
     onOpenProcessing: () -> Unit,
     homeViewModel: HomeViewModel = viewModel(factory = AppViewModelProvider.Factory)
 ) {
@@ -338,6 +339,10 @@ fun HomeScreen(
                     scope.launch { drawerState.close() }
                     pendingOnline = conversion
                     runCatching { onlinePicker.launch(conversion.sourceMimes.toTypedArray()) }
+                },
+                onAbout = {
+                    scope.launch { drawerState.close() }
+                    onOpenAbout()
                 }
             )
         }
@@ -914,7 +919,8 @@ private fun NexDrawerSheet(
     onMergePdf: () -> Unit,
     onSplitPdf: () -> Unit,
     onProtectPdf: () -> Unit,
-    onConvertDocument: (OnlineConversion) -> Unit
+    onConvertDocument: (OnlineConversion) -> Unit,
+    onAbout: () -> Unit
 ) {
     ModalDrawerSheet {
         Column(Modifier.verticalScroll(rememberScrollState())) {
@@ -1023,6 +1029,15 @@ private fun NexDrawerSheet(
                         modifier = Modifier.padding(horizontal = 12.dp)
                     )
                 }
+
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            NavigationDrawerItem(
+                label = { Text("About & privacy") },
+                icon = { Icon(Icons.Filled.Lock, contentDescription = null) },
+                selected = false,
+                onClick = onAbout,
+                modifier = Modifier.padding(horizontal = 12.dp)
+            )
             Spacer(Modifier.height(16.dp))
         }
     }

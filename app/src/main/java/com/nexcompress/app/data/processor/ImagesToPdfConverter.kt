@@ -37,7 +37,8 @@ class ImagesToPdfConverter(
     suspend fun convert(
         items: List<ImageBatchItem>,
         outputBaseName: String,
-        quality: Int
+        quality: Int,
+        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }
     ): CompressionResult = withContext(Dispatchers.IO) {
         if (items.isEmpty()) {
             throw CompressionException("No images were selected.")
@@ -46,9 +47,10 @@ class ImagesToPdfConverter(
         val document = PDDocument()
         try {
             var pagesAdded = 0
-            for (item in items) {
+            items.forEachIndexed { index, item ->
                 coroutineContext.ensureActive() // cooperative cancellation
                 if (addImagePage(document, item, quality)) pagesAdded++
+                onProgress(index + 1, items.size)
             }
             if (pagesAdded == 0) {
                 throw CompressionException(

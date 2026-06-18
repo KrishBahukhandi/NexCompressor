@@ -34,11 +34,18 @@ import com.nexcompress.app.domain.model.PdfPageOp
 import com.nexcompress.app.domain.model.PickedFile
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/**
+ * Progress of a multi-step job. [total] > 1 means a determinate bar can be shown
+ * ("[done] of [total]"); otherwise the job is a single op and stays indeterminate.
+ */
+data class JobProgress(val done: Int, val total: Int)
 
 /**
  * Shared ViewModel for the compression flow (Config -> Processing -> Results).
@@ -147,6 +154,18 @@ class CompressionViewModel(
     // --- Processing state (Screen 3 / 4) ---
     private val _state = MutableStateFlow<CompressionState>(CompressionState.Idle)
     val state: StateFlow<CompressionState> = _state.asStateFlow()
+
+    /** Per-item progress for multi-step jobs; null = indeterminate (single op). */
+    private val _progress = MutableStateFlow<JobProgress?>(null)
+    val progress: StateFlow<JobProgress?> = _progress.asStateFlow()
+
+    /** The in-flight processing job, so it can be cancelled from the UI. */
+    private var currentJob: Job? = null
+
+    /** Reports progress to the UI from inside an engine loop (thread-safe). */
+    private val progressReporter: (Int, Int) -> Unit = { done, total ->
+        _progress.value = JobProgress(done, total)
+    }
 
     /** Resolves PDF metadata off the main thread, then arms Screen 2. */
     fun onPdfPicked(uri: Uri) {
@@ -300,7 +319,7 @@ class CompressionViewModel(
     fun startPdfToImages() = launchJob {
         val input = pdfInput
             ?: throw CompressionException("No document selected. Please pick a PDF first.")
-        pdfToImageConverter.convert(input, pdfImageFormat, pdfImageQuality)
+        pdfToImageConverter.convert(input, pdfImageFormat, pdfImageQuality, progressReporter)
     }
 
     /** Exports the selected PDF as a PowerPoint deck — one full-bleed slide per page. */
@@ -315,7 +334,7 @@ class CompressionViewModel(
         if (imageItems.isEmpty()) {
             throw CompressionException("No images selected. Please pick up to 5 images first.")
         }
-        imageConverter.convert(imageItems, selectedFormat, imageQuality)
+        imageConverter.convert(imageItems, selectedFormat, imageQuality, progressReporter)
     }
 
     /** Combines the picked images (in current order) into a single PDF (Screen 3 entry). */
@@ -324,7 +343,7 @@ class CompressionViewModel(
             throw CompressionException("No images selected. Please pick up to 5 images first.")
         }
         val name = imagesToPdfName.ifBlank { "images" }
-        imagesToPdfConverter.convert(imageItems, name, imagesToPdfQuality)
+        imagesToPdfConverter.convert(imageItems, name, imagesToPdfQuality, progressReporter)
     }
 
     /** Renders the picked text file into a paginated PDF (Screen 3 entry). */
@@ -463,7 +482,7 @@ class CompressionViewModel(
     fun startSplitEach() = launchJob {
         val input = splitSource
             ?: throw CompressionException("No document selected. Please pick a PDF first.")
-        pdfSplitter.splitEach(input, splitName.ifBlank { storage.baseNameOf(input.displayName) })
+        pdfSplitter.splitEach(input, splitName.ifBlank { storage.baseNameOf(input.displayName) }, progressReporter)
     }
 
     // ===================== Protect / unlock PDF =====================================
@@ -524,7 +543,8 @@ class CompressionViewModel(
     private fun launchJob(work: suspend () -> CompressionResult) {
         if (_state.value is CompressionState.Loading) return
         _state.value = CompressionState.Loading
-        viewModelScope.launch {
+        _progress.value = null
+        currentJob = viewModelScope.launch {
             try {
                 val result = work()
                 // Local storage write routine — MUST complete before the
@@ -537,8 +557,22 @@ class CompressionViewModel(
                 _state.value = CompressionState.Error(e.message ?: "Processing failed.")
             } catch (e: Throwable) {
                 _state.value = CompressionState.Error("An unexpected error occurred. Please try again.")
+            } finally {
+                _progress.value = null
+                currentJob = null
             }
         }
+    }
+
+    /**
+     * Cancels the in-flight job (cooperative — engines check [ensureActive] between
+     * items) and returns to Idle. Any files already written in a batch are kept.
+     */
+    fun cancelProcessing() {
+        currentJob?.cancel()
+        currentJob = null
+        _progress.value = null
+        if (_state.value is CompressionState.Loading) _state.value = CompressionState.Idle
     }
 
     /** Returns to Idle (e.g. after dismissing an error popup). */

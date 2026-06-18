@@ -18,4 +18,6 @@ object Destinations {
 
     const val PROCESSING = "processing"
     const val RESULTS = "results"
+
+    const val ABOUT = "about"
 }
