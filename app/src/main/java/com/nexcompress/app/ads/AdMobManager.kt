@@ -34,6 +34,7 @@ class AdMobManager(context: Context) : AdManager {
     private var lastInterstitialAt = 0L
 
     override fun initialize() {
+        if (!AdsConfig.ENABLED) return
         if (initialized) return
         initialized = true
         try {
@@ -45,6 +46,7 @@ class AdMobManager(context: Context) : AdManager {
     }
 
     override fun preloadInterstitial() {
+        if (!AdsConfig.ENABLED) return
         if (isLoading || interstitial != null) return
         isLoading = true
         try {
@@ -72,6 +74,10 @@ class AdMobManager(context: Context) : AdManager {
     }
 
     override fun showInterstitialBridge(activity: Activity, onContinue: () -> Unit) {
+        if (!AdsConfig.ENABLED) {
+            onContinue()
+            return
+        }
         val ad = interstitial
         val now = System.currentTimeMillis()
         val capSatisfied = now - lastInterstitialAt >= MIN_INTERVAL_MS
