@@ -86,7 +86,8 @@ class PdfSplitter(
     /** Explodes every page into its own one-page PDF (one output file per page). */
     suspend fun splitEach(
         source: PickedFile,
-        outputBaseName: String
+        outputBaseName: String,
+        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }
     ): CompressionResult = withContext(Dispatchers.IO) {
         val temp = PdfFiles.copyToCache(context, Uri.parse(source.uriString), "split_")
         var src: PDDocument? = null
@@ -115,6 +116,7 @@ class PdfSplitter(
                 } finally {
                     runCatching { one.close() }
                 }
+                onProgress(i + 1, count)
             }
             CompressionResult(items)
         } catch (oom: OutOfMemoryError) {

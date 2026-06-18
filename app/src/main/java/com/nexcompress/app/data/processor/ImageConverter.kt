@@ -37,7 +37,8 @@ class ImageConverter(
     suspend fun convert(
         items: List<ImageBatchItem>,
         format: ImageFormat,
-        quality: Int
+        quality: Int,
+        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }
     ): CompressionResult = withContext(Dispatchers.IO) {
         if (items.isEmpty()) {
             throw CompressionException("No images were selected for conversion.")
@@ -46,7 +47,7 @@ class ImageConverter(
         val produced = mutableListOf<OutputItem>()
         val failures = mutableListOf<String>()
 
-        for (item in items) {
+        items.forEachIndexed { index, item ->
             coroutineContext.ensureActive() // cooperative cancellation
             val label = item.source.displayName
             try {
@@ -58,6 +59,7 @@ class ImageConverter(
                 Log.w(TAG, "Failed converting $label: ${e.message}", e)
                 failures += label
             }
+            onProgress(index + 1, items.size)
         }
 
         if (produced.isEmpty()) {

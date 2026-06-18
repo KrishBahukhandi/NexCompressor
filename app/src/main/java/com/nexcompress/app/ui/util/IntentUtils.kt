@@ -67,6 +67,18 @@ object IntentUtils {
         }
     }
 
+    /** Opens an external URL (e.g. the hosted privacy policy) in a browser. */
+    fun openUrl(context: Context, url: String) {
+        if (url.isBlank()) return
+        try {
+            context.startActivity(
+                Intent(Intent.ACTION_VIEW, url.toUri()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        } catch (e: Exception) {
+            Toast.makeText(context, "Couldn't open the link.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     fun mimeTypeFor(isPdf: Boolean): String = if (isPdf) "application/pdf" else "image/*"
 
     /** Maps an output filename's extension to a concrete MIME type for Share/View. */

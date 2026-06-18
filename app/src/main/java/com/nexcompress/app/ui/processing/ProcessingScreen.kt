@@ -12,12 +12,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -39,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import com.nexcompress.app.ads.AdManager
 import com.nexcompress.app.domain.model.CompressionState
 import com.nexcompress.app.ui.CompressionViewModel
+import com.nexcompress.app.ui.JobProgress
 import com.nexcompress.app.ui.util.findActivity
 import kotlinx.coroutines.delay
 
@@ -54,13 +58,15 @@ fun ProcessingScreen(
     viewModel: CompressionViewModel,
     adManager: AdManager,
     onComplete: () -> Unit,
-    onError: () -> Unit
+    onError: () -> Unit,
+    onCancel: () -> Unit
 ) {
     val state by viewModel.state.collectAsState()
+    val progress by viewModel.progress.collectAsState()
     val activity = LocalContext.current.findActivity()
 
-    // Block back navigation while a task is in flight (PRD: non-cancellable overlay).
-    BackHandler(enabled = state is CompressionState.Loading) { /* swallow */ }
+    // While a task runs, the system back gesture cancels it (same as the button).
+    BackHandler(enabled = state is CompressionState.Loading) { onCancel() }
 
     // Fire the bridge exactly once on success.
     var bridged by remember { mutableStateOf(false) }
@@ -95,14 +101,15 @@ fun ProcessingScreen(
                         }
                     )
                 }
-                else -> ProcessingContent()
+                else -> ProcessingContent(progress = progress, onCancel = onCancel)
             }
         }
     }
 }
 
 @Composable
-private fun ProcessingContent() {
+private fun ProcessingContent(progress: JobProgress?, onCancel: () -> Unit) {
+    val determinate = progress != null && progress.total > 1
     val messages = remember {
         listOf(
             "Working on your file…",
@@ -163,6 +170,23 @@ private fun ProcessingContent() {
                 textAlign = TextAlign.Center
             )
         }
+
+        if (determinate) {
+            val p = progress!!
+            Spacer(Modifier.height(16.dp))
+            Text(
+                "${p.done} of ${p.total}",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(Modifier.height(8.dp))
+            LinearProgressIndicator(
+                progress = { p.done.toFloat() / p.total.toFloat() },
+                modifier = Modifier.fillMaxWidth(0.75f)
+            )
+        }
+
         Spacer(Modifier.height(8.dp))
         Text(
             "This runs on your device, so it's quick.",
@@ -170,13 +194,10 @@ private fun ProcessingContent() {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
         )
-        Spacer(Modifier.height(24.dp))
-        Text(
-            "Please keep the app open",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center
-        )
+        Spacer(Modifier.height(20.dp))
+        OutlinedButton(onClick = onCancel) {
+            Text("Cancel")
+        }
     }
 }
 
