@@ -28,6 +28,9 @@ fun BannerAd(
     modifier: Modifier = Modifier,
     adUnitId: String = BANNER_TEST_UNIT_ID
 ) {
+    // Monetization disabled — render nothing.
+    if (!AdsConfig.ENABLED) return
+
     // Compose @Preview / inspection has no real Ads SDK context.
     if (LocalInspectionMode.current) {
         Box(

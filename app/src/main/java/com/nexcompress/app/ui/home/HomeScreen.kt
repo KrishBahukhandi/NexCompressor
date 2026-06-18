@@ -77,6 +77,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.nexcompress.app.ads.AdsConfig
 import com.nexcompress.app.ads.BannerAd
 import com.nexcompress.app.data.local.CompressionHistory
 import com.nexcompress.app.data.local.savings
@@ -372,8 +373,10 @@ fun HomeScreen(
         bottomBar = {
             Column {
                 // ===== MONETIZATION HOOK — Anchor Banner (base of Screen 1) =====
-                Surface(tonalElevation = 3.dp) {
-                    BannerAd(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp))
+                if (AdsConfig.ENABLED) {
+                    Surface(tonalElevation = 3.dp) {
+                        BannerAd(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp))
+                    }
                 }
                 NavigationBar {
                     NavigationBarItem(
