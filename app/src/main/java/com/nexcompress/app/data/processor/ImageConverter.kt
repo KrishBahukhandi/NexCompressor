@@ -74,14 +74,21 @@ class ImageConverter(
         var source: Bitmap? = null
         var flattened: Bitmap? = null
         try {
-            source = decodeSampled(uri)
+            var work = decodeSampled(uri)
                 ?: throw CompressionException("Unable to decode ${input.displayName}.")
+            source = work
+
+            // Apply any per-image edit (rotate / flip / crop / resize) first.
+            item.editSpec?.let {
+                work = ImageTransforms.applyGeometry(work, it)
+                source = work
+            }
 
             // JPEG has no alpha channel — flatten transparency onto white first.
-            val toEncode = if (format == ImageFormat.JPEG && source.hasAlpha()) {
-                flattenOntoWhite(source).also { flattened = it }
+            val toEncode = if (format == ImageFormat.JPEG && work.hasAlpha()) {
+                flattenOntoWhite(work).also { flattened = it }
             } else {
-                source
+                work
             }
 
             val outName = storage.composeOutputName(item.outputName, format.extension)

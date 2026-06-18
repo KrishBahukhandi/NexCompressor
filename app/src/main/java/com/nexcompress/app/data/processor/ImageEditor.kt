@@ -5,12 +5,10 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.Matrix
 import android.net.Uri
 import android.os.Build
 import com.nexcompress.app.domain.model.CompressionException
 import com.nexcompress.app.domain.model.CompressionResult
-import com.nexcompress.app.domain.model.CropRect
 import com.nexcompress.app.domain.model.FileType
 import com.nexcompress.app.domain.model.ImageEditSpec
 import com.nexcompress.app.domain.model.ImageFormat
@@ -42,9 +40,7 @@ class ImageEditor(
         try {
             current = decodeSampled(uri)
                 ?: throw CompressionException("Couldn't read that image. It may be corrupted or unsupported.")
-            current = applyOrientation(current, spec)
-            current = applyCrop(current, spec.crop)
-            current = applyResize(current, spec.maxLongEdge)
+            current = ImageTransforms.applyGeometry(current, spec)
 
             val format = spec.format
             // JPEG/WebP can't store transparency — flatten onto white first.
@@ -79,47 +75,6 @@ class ImageEditor(
             if (encoded != null && encoded !== current) encoded.recycle()
             current?.recycle()
         }
-    }
-
-    private fun applyOrientation(src: Bitmap, spec: ImageEditSpec): Bitmap {
-        val r = ((spec.rotationDegrees % 360) + 360) % 360
-        if (r == 0 && !spec.flipHorizontal && !spec.flipVertical) return src
-        val m = Matrix()
-        if (spec.flipHorizontal || spec.flipVertical) {
-            m.postScale(if (spec.flipHorizontal) -1f else 1f, if (spec.flipVertical) -1f else 1f)
-        }
-        if (r != 0) m.postRotate(r.toFloat())
-        val out = Bitmap.createBitmap(src, 0, 0, src.width, src.height, m, true)
-        if (out !== src) src.recycle()
-        return out
-    }
-
-    private fun applyCrop(src: Bitmap, crop: CropRect): Bitmap {
-        if (crop.isFull) return src
-        val w0 = src.width
-        val h0 = src.height
-        val x = (crop.left.coerceIn(0f, 1f) * w0).toInt().coerceIn(0, w0 - 1)
-        val y = (crop.top.coerceIn(0f, 1f) * h0).toInt().coerceIn(0, h0 - 1)
-        var cw = ((crop.right - crop.left).coerceIn(0f, 1f) * w0).toInt().coerceAtLeast(1)
-        var ch = ((crop.bottom - crop.top).coerceIn(0f, 1f) * h0).toInt().coerceAtLeast(1)
-        cw = cw.coerceAtMost(w0 - x)
-        ch = ch.coerceAtMost(h0 - y)
-        if (x == 0 && y == 0 && cw == w0 && ch == h0) return src
-        val out = Bitmap.createBitmap(src, x, y, cw, ch)
-        if (out !== src) src.recycle()
-        return out
-    }
-
-    private fun applyResize(src: Bitmap, maxLongEdge: Int?): Bitmap {
-        if (maxLongEdge == null) return src
-        val longEdge = maxOf(src.width, src.height)
-        if (longEdge <= maxLongEdge) return src
-        val scale = maxLongEdge.toFloat() / longEdge
-        val w = (src.width * scale).toInt().coerceAtLeast(1)
-        val h = (src.height * scale).toInt().coerceAtLeast(1)
-        val out = Bitmap.createScaledBitmap(src, w, h, true)
-        if (out !== src) src.recycle()
-        return out
     }
 
     /** Memory-capped decode with EXIF applied, so edits start from upright pixels

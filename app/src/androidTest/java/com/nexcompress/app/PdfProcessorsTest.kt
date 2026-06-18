@@ -10,12 +10,10 @@ import com.nexcompress.app.data.processor.FileStorageManager
 import com.nexcompress.app.data.processor.PdfCompressor
 import com.nexcompress.app.data.processor.PdfFiles
 import com.nexcompress.app.data.processor.PdfPageRenderer
-import com.nexcompress.app.data.processor.PdfSigner
 import com.nexcompress.app.domain.model.CompressionProfile
 import com.nexcompress.app.domain.model.FileType
 import com.nexcompress.app.domain.model.OutputItem
 import com.nexcompress.app.domain.model.PickedFile
-import com.nexcompress.app.domain.model.SignaturePlacement
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPage
@@ -135,133 +133,6 @@ class PdfProcessorsTest {
         }
     }
 
-    // ------------------------------------------------------------------ //
-    // Signing                                                            //
-    // ------------------------------------------------------------------ //
-
-    @Test
-    fun sign_stampsInkAtPlacement_andKeepsPageText() = runBlocking<Unit> {
-        val fixture = buildFixturePdf(pages = 3, photoOnFirstPage = false)
-        try {
-            val input = PickedFile(
-                Uri.fromFile(fixture).toString(), fixture.name, fixture.length(), FileType.PDF
-            )
-            val placement = SignaturePlacement(
-                pageIndex = 0, left = 0.30f, top = 0.60f, width = 0.40f, height = 0.10f
-            )
-            val result = PdfSigner(context, storage)
-                .sign(input, redBlockPng(), placement, "test_sign")
-            val item = result.items.single().also { outputs.add(it) }
-
-            // Lossless overlay: the file may only grow by roughly the stamp.
-            assertTrue(
-                "signed file ballooned: ${item.outputSize} vs ${item.originalSize}",
-                item.outputSize < item.originalSize + 200_000
-            )
-
-            stageToCache(item.uri).let { staged ->
-                PDDocument.load(staged).use { doc ->
-                    assertEquals(3, doc.numberOfPages)
-                    val stripper = PDFTextStripper().apply { startPage = 1; endPage = 1 }
-                    // The signed page must NOT have been flattened to an image.
-                    assertTrue(stripper.getText(doc).contains("NexCompress fixture page 1"))
-                }
-                staged.delete()
-            }
-
-            val rendered = renderFirstPage(item.uri)
-            try {
-                assertTrue(
-                    "ink missing inside the placement box",
-                    redRatio(rendered, 0.34f, 0.62f, 0.32f, 0.06f) > 0.5f
-                )
-                assertEquals(
-                    "ink leaked outside the placement box",
-                    0f, redRatio(rendered, 0.02f, 0.25f, 0.20f, 0.25f)
-                )
-            } finally {
-                rendered.recycle()
-            }
-        } finally {
-            fixture.delete()
-        }
-    }
-
-    @Test
-    fun sign_rotatedPage_landsWhereTheUserPlacedIt() = runBlocking<Unit> {
-        val fixture = buildRotatedPdf(rotation = 90)
-        try {
-            val input = PickedFile(
-                Uri.fromFile(fixture).toString(), fixture.name, fixture.length(), FileType.PDF
-            )
-            // Top-left area of the page as the user SEES it.
-            val placement = SignaturePlacement(
-                pageIndex = 0, left = 0.10f, top = 0.10f, width = 0.30f, height = 0.15f
-            )
-            val result = PdfSigner(context, storage)
-                .sign(input, redBlockPng(), placement, "test_sign_rot")
-            val item = result.items.single().also { outputs.add(it) }
-
-            val rendered = renderFirstPage(item.uri)
-            try {
-                // PdfRenderer applies /Rotate, so the bitmap is the upright view:
-                // landscape for a rotated portrait page.
-                assertTrue("expected an upright landscape render", rendered.width > rendered.height)
-                assertTrue(
-                    "ink missing where the user placed it on the rotated page",
-                    redRatio(rendered, 0.13f, 0.13f, 0.24f, 0.09f) > 0.5f
-                )
-                assertEquals(
-                    "ink leaked to the wrong corner of the rotated page",
-                    0f, redRatio(rendered, 0.60f, 0.60f, 0.30f, 0.30f)
-                )
-            } finally {
-                rendered.recycle()
-            }
-        } finally {
-            fixture.delete()
-        }
-    }
-
-    /**
-     * The 180° and 270° placement matrices in PdfSigner are separate formulas
-     * from the 90° one, so they need their own coverage. PdfRenderer renders the
-     * page upright, so a top-left placement must land top-left for EVERY /Rotate.
-     */
-    @Test
-    fun sign_rotated180And270_landWhereTheUserPlacedIt() = runBlocking<Unit> {
-        for (rot in listOf(180, 270)) {
-            val fixture = buildRotatedPdf(rotation = rot)
-            try {
-                val input = PickedFile(
-                    Uri.fromFile(fixture).toString(), fixture.name, fixture.length(), FileType.PDF
-                )
-                val placement = SignaturePlacement(
-                    pageIndex = 0, left = 0.10f, top = 0.10f, width = 0.30f, height = 0.15f
-                )
-                val item = PdfSigner(context, storage)
-                    .sign(input, redBlockPng(), placement, "test_sign_$rot")
-                    .items.single().also { outputs.add(it) }
-
-                val rendered = renderFirstPage(item.uri)
-                try {
-                    assertTrue(
-                        "rot=$rot: ink missing where the user placed it (top-left)",
-                        redRatio(rendered, 0.13f, 0.13f, 0.24f, 0.09f) > 0.5f
-                    )
-                    assertEquals(
-                        "rot=$rot: ink leaked to the opposite corner",
-                        0f, redRatio(rendered, 0.60f, 0.60f, 0.30f, 0.30f)
-                    )
-                } finally {
-                    rendered.recycle()
-                }
-            } finally {
-                fixture.delete()
-            }
-        }
-    }
-
     /**
      * The compression profiles must actually differ: a more aggressive profile
      * (lower quality + smaller image cap) has to produce a smaller file, else the
@@ -334,22 +205,6 @@ class PdfProcessorsTest {
         }
     }
 
-    /** One blank portrait page displayed rotated via /Rotate. */
-    private fun buildRotatedPdf(rotation: Int): File {
-        val doc = PDDocument()
-        try {
-            val page = PDPage(PDRectangle.LETTER)
-            page.rotation = rotation
-            doc.addPage(page)
-            PDPageContentStream(doc, page).use { /* blank content stream */ }
-            val f = File(context.cacheDir, "fixture_rot_${System.nanoTime()}.pdf")
-            doc.save(f)
-            return f
-        } finally {
-            doc.close()
-        }
-    }
-
     /** Gradient+noise photo — incompressible enough to dominate the file size. */
     private fun noisyPhoto(w: Int, h: Int): Bitmap {
         val rnd = Random(42)
@@ -363,18 +218,6 @@ class PdfProcessorsTest {
             px[i] = Color.rgb(r, g, b)
         }
         return Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
-    }
-
-    /** Opaque red block PNG standing in for a drawn signature. */
-    private fun redBlockPng(): ByteArray {
-        val bmp = Bitmap.createBitmap(300, 100, Bitmap.Config.ARGB_8888)
-        bmp.eraseColor(Color.rgb(200, 0, 0))
-        val bytes = ByteArrayOutputStream().use { baos ->
-            bmp.compress(Bitmap.CompressFormat.PNG, 100, baos)
-            baos.toByteArray()
-        }
-        bmp.recycle()
-        return bytes
     }
 
     private fun stageToCache(uriString: String): File =
@@ -394,12 +237,6 @@ class PdfProcessorsTest {
         sampleRatio(bmp, l, t, w, h) { c ->
             val lum = (Color.red(c) + Color.green(c) + Color.blue(c)) / 3
             lum in 30..225
-        }
-
-    /** Fraction of sampled pixels in the normalized region that are signature-red. */
-    private fun redRatio(bmp: Bitmap, l: Float, t: Float, w: Float, h: Float): Float =
-        sampleRatio(bmp, l, t, w, h) { c ->
-            Color.red(c) > 150 && Color.green(c) < 110 && Color.blue(c) < 110
         }
 
     private fun sampleRatio(

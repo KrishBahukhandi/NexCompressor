@@ -11,9 +11,7 @@ import com.nexcompress.app.ads.AdManager
 import com.nexcompress.app.ui.AppViewModelProvider
 import com.nexcompress.app.ui.CompressionViewModel
 import com.nexcompress.app.ui.home.HomeScreen
-import com.nexcompress.app.ui.imageconfig.ImageConfigScreen
-import com.nexcompress.app.ui.imagestopdf.ImagesToPdfConfigScreen
-import com.nexcompress.app.ui.imagestudio.ImageStudioScreen
+import com.nexcompress.app.ui.images.ImagesScreen
 import com.nexcompress.app.ui.mergepdf.MergePdfScreen
 import com.nexcompress.app.ui.pdfconfig.PdfConfigScreen
 import com.nexcompress.app.ui.pdfpages.PdfPageEditorScreen
@@ -22,7 +20,6 @@ import com.nexcompress.app.ui.processing.ProcessingScreen
 import com.nexcompress.app.ui.protectpdf.ProtectPdfScreen
 import com.nexcompress.app.ui.results.ResultsScreen
 import com.nexcompress.app.ui.annotatepdf.AnnotatePdfScreen
-import com.nexcompress.app.ui.signpdf.SignPdfScreen
 import com.nexcompress.app.ui.splitpdf.SplitPdfScreen
 import com.nexcompress.app.ui.txttopdf.TxtToPdfConfigScreen
 import com.nexcompress.app.ui.util.findActivity
@@ -53,16 +50,13 @@ fun NexCompressNavGraph(
             HomeScreen(
                 compressionViewModel = compressionViewModel,
                 onOpenPdfConfig = { navController.navigate(Destinations.PDF_CONFIG) },
-                onOpenImageConfig = { navController.navigate(Destinations.IMAGE_CONFIG) },
+                onOpenImages = { navController.navigate(Destinations.IMAGES) },
                 onOpenPdfToImageConfig = { navController.navigate(Destinations.PDF_TO_IMAGE_CONFIG) },
-                onOpenImagesToPdfConfig = { navController.navigate(Destinations.IMAGES_TO_PDF_CONFIG) },
                 onOpenTxtToPdfConfig = { navController.navigate(Destinations.TXT_TO_PDF_CONFIG) },
-                onOpenImageStudio = { navController.navigate(Destinations.IMAGE_STUDIO) },
                 onOpenPdfPages = { navController.navigate(Destinations.PDF_PAGES) },
                 onOpenMergePdf = { navController.navigate(Destinations.MERGE_PDF) },
                 onOpenSplitPdf = { navController.navigate(Destinations.SPLIT_PDF) },
                 onOpenProtectPdf = { navController.navigate(Destinations.PROTECT_PDF) },
-                onOpenSignPdf = { navController.navigate(Destinations.SIGN_PDF) },
                 onOpenAnnotatePdf = { navController.navigate(Destinations.ANNOTATE_PDF) },
                 onOpenProcessing = { navController.navigate(Destinations.PROCESSING) }
             )
@@ -86,18 +80,9 @@ fun NexCompressNavGraph(
             )
         }
 
-        // Screen 2b — Image Conversion Control (PRD Flow B)
-        composable(Destinations.IMAGE_CONFIG) {
-            ImageConfigScreen(
-                viewModel = compressionViewModel,
-                onBack = { navController.popBackStack() },
-                onStartProcessing = { navController.navigate(Destinations.PROCESSING) }
-            )
-        }
-
-        // Images → PDF conversion config
-        composable(Destinations.IMAGES_TO_PDF_CONFIG) {
-            ImagesToPdfConfigScreen(
+        // Unified Images tool — convert / edit / images→PDF
+        composable(Destinations.IMAGES) {
+            ImagesScreen(
                 viewModel = compressionViewModel,
                 onBack = { navController.popBackStack() },
                 onStartProcessing = { navController.navigate(Destinations.PROCESSING) }
@@ -107,15 +92,6 @@ fun NexCompressNavGraph(
         // TXT → PDF conversion config
         composable(Destinations.TXT_TO_PDF_CONFIG) {
             TxtToPdfConfigScreen(
-                viewModel = compressionViewModel,
-                onBack = { navController.popBackStack() },
-                onStartProcessing = { navController.navigate(Destinations.PROCESSING) }
-            )
-        }
-
-        // Image Studio — resize / crop / rotate
-        composable(Destinations.IMAGE_STUDIO) {
-            ImageStudioScreen(
                 viewModel = compressionViewModel,
                 onBack = { navController.popBackStack() },
                 onStartProcessing = { navController.navigate(Destinations.PROCESSING) }
@@ -152,15 +128,6 @@ fun NexCompressNavGraph(
         // Protect / unlock PDF
         composable(Destinations.PROTECT_PDF) {
             ProtectPdfScreen(
-                viewModel = compressionViewModel,
-                onBack = { navController.popBackStack() },
-                onStartProcessing = { navController.navigate(Destinations.PROCESSING) }
-            )
-        }
-
-        // Sign PDF
-        composable(Destinations.SIGN_PDF) {
-            SignPdfScreen(
                 viewModel = compressionViewModel,
                 onBack = { navController.popBackStack() },
                 onStartProcessing = { navController.navigate(Destinations.PROCESSING) }

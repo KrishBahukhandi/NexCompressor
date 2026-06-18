@@ -34,9 +34,7 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.ContentCut
-import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.Draw
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MergeType
@@ -120,16 +118,13 @@ private enum class HomeTab { HOME, HISTORY }
 fun HomeScreen(
     compressionViewModel: CompressionViewModel,
     onOpenPdfConfig: () -> Unit,
-    onOpenImageConfig: () -> Unit,
+    onOpenImages: () -> Unit,
     onOpenPdfToImageConfig: () -> Unit,
-    onOpenImagesToPdfConfig: () -> Unit,
     onOpenTxtToPdfConfig: () -> Unit,
-    onOpenImageStudio: () -> Unit,
     onOpenPdfPages: () -> Unit,
     onOpenMergePdf: () -> Unit,
     onOpenSplitPdf: () -> Unit,
     onOpenProtectPdf: () -> Unit,
-    onOpenSignPdf: () -> Unit,
     onOpenAnnotatePdf: () -> Unit,
     onOpenProcessing: () -> Unit,
     homeViewModel: HomeViewModel = viewModel(factory = AppViewModelProvider.Factory)
@@ -191,23 +186,6 @@ fun HomeScreen(
         }
     }
 
-    // SAF multi-picker for the Images → PDF flow.
-    val imagesToPdfPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenMultipleDocuments()
-    ) { uris ->
-        if (!uris.isNullOrEmpty()) {
-            uris.take(CompressionViewModel.MAX_IMAGE_SELECTION).forEach { uri ->
-                runCatching {
-                    context.contentResolver.takePersistableUriPermission(
-                        uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
-                    )
-                }
-            }
-            compressionViewModel.onImagesPicked(uris)
-            onOpenImagesToPdfConfig()
-        }
-    }
-
     // SAF picker for the TXT → PDF flow.
     val txtPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -253,22 +231,11 @@ fun HomeScreen(
                 }
             }
             compressionViewModel.onImagesPicked(uris)
-            onOpenImageConfig()
+            onOpenImages()
         }
     }
 
     // --- Advanced tools: SAF pickers ---
-    val imageStudioPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) {
-            runCatching {
-                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            compressionViewModel.onImageEditPicked(uri)
-            onOpenImageStudio()
-        }
-    }
     val pdfPagesPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -315,17 +282,6 @@ fun HomeScreen(
             onOpenProtectPdf()
         }
     }
-    val signPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) {
-            runCatching {
-                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            compressionViewModel.onSignPicked(uri)
-            onOpenSignPdf()
-        }
-    }
     val annotatePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -346,7 +302,7 @@ fun HomeScreen(
                     scope.launch { drawerState.close() }
                     runCatching { pdfPicker.launch(arrayOf("application/pdf")) }
                 },
-                onConvertImages = {
+                onImages = {
                     scope.launch { drawerState.close() }
                     runCatching { imagePicker.launch(arrayOf("image/*")) }
                 },
@@ -354,25 +310,13 @@ fun HomeScreen(
                     scope.launch { drawerState.close() }
                     runCatching { pdfToImagePicker.launch(arrayOf("application/pdf")) }
                 },
-                onImagesToPdf = {
-                    scope.launch { drawerState.close() }
-                    runCatching { imagesToPdfPicker.launch(arrayOf("image/*")) }
-                },
                 onTxtToPdf = {
                     scope.launch { drawerState.close() }
                     runCatching { txtPicker.launch(arrayOf("text/plain")) }
                 },
-                onSignPdf = {
-                    scope.launch { drawerState.close() }
-                    runCatching { signPicker.launch(arrayOf("application/pdf")) }
-                },
                 onAnnotatePdf = {
                     scope.launch { drawerState.close() }
                     runCatching { annotatePicker.launch(arrayOf("application/pdf")) }
-                },
-                onImageStudio = {
-                    scope.launch { drawerState.close() }
-                    runCatching { imageStudioPicker.launch(arrayOf("image/*")) }
                 },
                 onPdfPages = {
                     scope.launch { drawerState.close() }
@@ -483,8 +427,8 @@ fun HomeScreen(
                         modifier = Modifier.weight(1f),
                         icon = Icons.Filled.Image,
                         accent = NexViolet,
-                        title = "Convert images",
-                        subtitle = "JPG, PNG, WebP",
+                        title = "Images",
+                        subtitle = "Convert, edit, PDF",
                         onClick = { runCatching { imagePicker.launch(arrayOf("image/*")) } }
                     )
                 }
@@ -496,9 +440,9 @@ fun HomeScreen(
                         modifier = Modifier.weight(1f),
                         icon = Icons.Filled.Draw,
                         accent = NexGreen,
-                        title = "Sign PDF",
-                        subtitle = "Draw & place",
-                        onClick = { runCatching { signPicker.launch(arrayOf("application/pdf")) } }
+                        title = "Edit & sign PDF",
+                        subtitle = "Text, draw, sign",
+                        onClick = { runCatching { annotatePicker.launch(arrayOf("application/pdf")) } }
                     )
                     FeatureTile(
                         modifier = Modifier.weight(1f),
@@ -962,13 +906,10 @@ private fun EmptyHistory() {
 @Composable
 private fun NexDrawerSheet(
     onCompressPdf: () -> Unit,
-    onConvertImages: () -> Unit,
+    onImages: () -> Unit,
     onPdfToImages: () -> Unit,
-    onImagesToPdf: () -> Unit,
     onTxtToPdf: () -> Unit,
-    onSignPdf: () -> Unit,
     onAnnotatePdf: () -> Unit,
-    onImageStudio: () -> Unit,
     onPdfPages: () -> Unit,
     onMergePdf: () -> Unit,
     onSplitPdf: () -> Unit,
@@ -1009,24 +950,17 @@ private fun NexDrawerSheet(
                 modifier = Modifier.padding(horizontal = 12.dp)
             )
             NavigationDrawerItem(
-                label = { Text("Convert Images") },
+                label = { Text("Images") },
                 icon = { Icon(Icons.Filled.Image, contentDescription = null) },
                 selected = false,
-                onClick = onConvertImages,
+                onClick = onImages,
                 modifier = Modifier.padding(horizontal = 12.dp)
             )
             NavigationDrawerItem(
-                label = { Text("PDF → Images") },
+                label = { Text("Export PDF (images / slides)") },
                 icon = { Icon(Icons.Filled.Collections, contentDescription = null) },
                 selected = false,
                 onClick = onPdfToImages,
-                modifier = Modifier.padding(horizontal = 12.dp)
-            )
-            NavigationDrawerItem(
-                label = { Text("Images → PDF") },
-                icon = { Icon(Icons.Filled.PictureAsPdf, contentDescription = null) },
-                selected = false,
-                onClick = onImagesToPdf,
                 modifier = Modifier.padding(horizontal = 12.dp)
             )
             NavigationDrawerItem(
@@ -1040,22 +974,8 @@ private fun NexDrawerSheet(
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
             DrawerSectionLabel("Edit & sign · on-device")
             NavigationDrawerItem(
-                label = { Text("Sign PDF") },
+                label = { Text("Edit & Sign PDF") },
                 icon = { Icon(Icons.Filled.Draw, contentDescription = null) },
-                selected = false,
-                onClick = onSignPdf,
-                modifier = Modifier.padding(horizontal = 12.dp)
-            )
-            NavigationDrawerItem(
-                label = { Text("Annotate PDF") },
-                icon = { Icon(Icons.Filled.Edit, contentDescription = null) },
-                badge = {
-                    Text(
-                        "New",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                },
                 selected = false,
                 onClick = onAnnotatePdf,
                 modifier = Modifier.padding(horizontal = 12.dp)
@@ -1088,25 +1008,21 @@ private fun NexDrawerSheet(
                 onClick = onProtectPdf,
                 modifier = Modifier.padding(horizontal = 12.dp)
             )
-            NavigationDrawerItem(
-                label = { Text("Image Studio") },
-                icon = { Icon(Icons.Filled.Crop, contentDescription = null) },
-                selected = false,
-                onClick = onImageStudio,
-                modifier = Modifier.padding(horizontal = 12.dp)
-            )
 
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
             DrawerSectionLabel("Convert documents")
-            OnlineConversion.entries.forEach { conversion ->
-                NavigationDrawerItem(
-                    label = { Text(conversion.title) },
-                    icon = { Icon(Icons.Filled.Description, contentDescription = null) },
-                    selected = false,
-                    onClick = { onConvertDocument(conversion) },
-                    modifier = Modifier.padding(horizontal = 12.dp)
-                )
-            }
+            // PDF → PowerPoint is surfaced via "Export PDF" instead.
+            OnlineConversion.entries
+                .filter { it != OnlineConversion.PDF_TO_PPT }
+                .forEach { conversion ->
+                    NavigationDrawerItem(
+                        label = { Text(conversion.title) },
+                        icon = { Icon(Icons.Filled.Description, contentDescription = null) },
+                        selected = false,
+                        onClick = { onConvertDocument(conversion) },
+                        modifier = Modifier.padding(horizontal = 12.dp)
+                    )
+                }
             Spacer(Modifier.height(16.dp))
         }
     }
