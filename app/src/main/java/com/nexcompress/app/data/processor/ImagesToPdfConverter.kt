@@ -89,13 +89,20 @@ class ImagesToPdfConverter(
         var source: Bitmap? = null
         var flattened: Bitmap? = null
         try {
-            source = ImageDecoding.decodeUpright(context, uri, MAX_DIMENSION) ?: return false
+            var work = ImageDecoding.decodeUpright(context, uri, MAX_DIMENSION) ?: return false
+            source = work
+
+            // Apply any per-image edit (rotate / flip / crop / resize) first.
+            item.editSpec?.let {
+                work = ImageTransforms.applyGeometry(work, it)
+                source = work
+            }
 
             // Pages embed JPEG, so flatten any transparency onto white.
-            val toEncode = if (source.hasAlpha()) {
-                flattenOntoWhite(source).also { flattened = it }
+            val toEncode = if (work.hasAlpha()) {
+                flattenOntoWhite(work).also { flattened = it }
             } else {
-                source
+                work
             }
 
             val jpeg = ByteArrayOutputStream().use { baos ->

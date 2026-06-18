@@ -34,6 +34,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -45,8 +49,9 @@ import com.nexcompress.app.ui.CompressionViewModel
 import com.nexcompress.app.ui.components.SectionLabel
 
 /**
- * Config screen for PDF → Images. Pick the output image format (+ quality) and
- * convert every page of the selected PDF into a separate image file.
+ * "Export PDF as…" — turn the selected PDF into either a set of page images
+ * (JPG/PNG/WebP, with quality) or a PowerPoint deck (one full-bleed slide per
+ * page). Both run fully on-device.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,11 +63,12 @@ fun PdfToImageConfigScreen(
     val input = viewModel.pdfInput
     val format = viewModel.pdfImageFormat
     val quality = viewModel.pdfImageQuality
+    var asSlides by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("PDF → Images", style = MaterialTheme.typography.titleMedium) },
+                title = { Text("Export PDF", style = MaterialTheme.typography.titleMedium) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -119,51 +125,68 @@ fun PdfToImageConfigScreen(
             }
 
             Spacer(Modifier.height(4.dp))
-            SectionLabel("Output Image Format")
+            SectionLabel("Export as")
             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                ImageFormat.entries.forEachIndexed { index, fmt ->
-                    SegmentedButton(
-                        selected = fmt == format,
-                        onClick = { viewModel.updatePdfImageFormat(fmt) },
-                        shape = SegmentedButtonDefaults.itemShape(index, ImageFormat.entries.size)
-                    ) {
-                        Text(fmt.displayName)
-                    }
-                }
+                SegmentedButton(
+                    selected = !asSlides,
+                    onClick = { asSlides = false },
+                    shape = SegmentedButtonDefaults.itemShape(0, 2)
+                ) { Text("Images") }
+                SegmentedButton(
+                    selected = asSlides,
+                    onClick = { asSlides = true },
+                    shape = SegmentedButtonDefaults.itemShape(1, 2)
+                ) { Text("PowerPoint") }
             }
 
-            Spacer(Modifier.height(6.dp))
-            val lossless = format.lossless
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                SectionLabel("Quality Scale")
-                Text(
-                    if (lossless) "Lossless" else "$quality%",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary
+            if (!asSlides) {
+                Spacer(Modifier.height(8.dp))
+                SectionLabel("Output Image Format")
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    ImageFormat.entries.forEachIndexed { index, fmt ->
+                        SegmentedButton(
+                            selected = fmt == format,
+                            onClick = { viewModel.updatePdfImageFormat(fmt) },
+                            shape = SegmentedButtonDefaults.itemShape(index, ImageFormat.entries.size)
+                        ) {
+                            Text(fmt.displayName)
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(6.dp))
+                val lossless = format.lossless
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    SectionLabel("Quality Scale")
+                    Text(
+                        if (lossless) "Lossless" else "$quality%",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                Slider(
+                    value = quality.toFloat(),
+                    onValueChange = { viewModel.updatePdfImageQuality(it.toInt()) },
+                    valueRange = 10f..100f,
+                    enabled = !lossless,
+                    modifier = Modifier.fillMaxWidth()
                 )
-            }
-            Slider(
-                value = quality.toFloat(),
-                onValueChange = { viewModel.updatePdfImageQuality(it.toInt()) },
-                valueRange = 10f..100f,
-                enabled = !lossless,
-                modifier = Modifier.fillMaxWidth()
-            )
-            if (lossless) {
-                Text(
-                    "PNG is lossless — the quality scale isn't applied.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                if (lossless) {
+                    Text(
+                        "PNG is lossless — the quality scale isn't applied.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
             Spacer(Modifier.height(8.dp))
             Button(
                 onClick = {
-                    viewModel.startPdfToImages()
+                    if (asSlides) viewModel.startPdfToPptx() else viewModel.startPdfToImages()
                     onStartProcessing()
                 },
                 enabled = input != null,
@@ -174,13 +197,15 @@ fun PdfToImageConfigScreen(
                 Icon(Icons.Filled.Bolt, contentDescription = null, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.size(8.dp))
                 Text(
-                    "CONVERT TO IMAGES",
+                    if (asSlides) "EXPORT TO POWERPOINT" else "CONVERT TO IMAGES",
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold
                 )
             }
             Text(
-                "Each page becomes a separate image saved to Downloads/NexCompress.",
+                if (asSlides)
+                    "Each page becomes a full-bleed slide in a .pptx deck, saved to Downloads/NexCompress."
+                else "Each page becomes a separate image saved to Downloads/NexCompress.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

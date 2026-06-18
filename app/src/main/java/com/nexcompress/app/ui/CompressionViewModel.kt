@@ -8,7 +8,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nexcompress.app.data.processor.FileStorageManager
 import com.nexcompress.app.data.processor.ImageConverter
-import com.nexcompress.app.data.processor.ImageEditor
 import com.nexcompress.app.data.processor.ImagesToPdfConverter
 import com.nexcompress.app.data.processor.OfficeConverter
 import com.nexcompress.app.data.processor.PdfAnnotator
@@ -16,7 +15,6 @@ import com.nexcompress.app.data.processor.PdfCompressor
 import com.nexcompress.app.data.processor.PdfMerger
 import com.nexcompress.app.data.processor.PdfPageEditor
 import com.nexcompress.app.data.processor.PdfProtector
-import com.nexcompress.app.data.processor.PdfSigner
 import com.nexcompress.app.data.processor.PdfSplitter
 import com.nexcompress.app.data.processor.PdfToImageConverter
 import com.nexcompress.app.data.processor.TxtToPdfConverter
@@ -34,7 +32,6 @@ import com.nexcompress.app.domain.model.OnlineConversion
 import com.nexcompress.app.domain.model.PdfAnnotation
 import com.nexcompress.app.domain.model.PdfPageOp
 import com.nexcompress.app.domain.model.PickedFile
-import com.nexcompress.app.domain.model.SignaturePlacement
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -55,12 +52,10 @@ class CompressionViewModel(
     private val pdfToImageConverter: PdfToImageConverter,
     private val imagesToPdfConverter: ImagesToPdfConverter,
     private val txtToPdfConverter: TxtToPdfConverter,
-    private val imageEditor: ImageEditor,
     private val pdfPageEditor: PdfPageEditor,
     private val pdfMerger: PdfMerger,
     private val pdfSplitter: PdfSplitter,
     private val pdfProtector: PdfProtector,
-    private val pdfSigner: PdfSigner,
     private val pdfAnnotator: PdfAnnotator,
     private val officeConverter: OfficeConverter,
     private val onlineConversionService: OnlineConversionService
@@ -99,6 +94,10 @@ class CompressionViewModel(
     var imagesToPdfQuality by mutableStateOf(DEFAULT_IMAGE_QUALITY)
         private set
 
+    /** Unified Images tool: false = export converted image files, true = one PDF. */
+    var imagesAsPdf by mutableStateOf(false)
+        private set
+
     // --- TXT → PDF config ---
     var txtInput by mutableStateOf<PickedFile?>(null)
         private set
@@ -109,12 +108,6 @@ class CompressionViewModel(
 
     // --- Online (Office) conversion ---
     var onlineConversion by mutableStateOf<OnlineConversion?>(null)
-        private set
-
-    // --- Image Studio (resize / crop / rotate) ---
-    var imageEditSource by mutableStateOf<PickedFile?>(null)
-        private set
-    var imageEditName by mutableStateOf("")
         private set
 
     // --- PDF page editor (reorder / rotate / delete) ---
@@ -143,12 +136,6 @@ class CompressionViewModel(
     var protectSource by mutableStateOf<PickedFile?>(null)
         private set
     var protectName by mutableStateOf("")
-        private set
-
-    // --- Sign PDF ---
-    var signSource by mutableStateOf<PickedFile?>(null)
-        private set
-    var signName by mutableStateOf("")
         private set
 
     // --- Annotate PDF ---
@@ -251,7 +238,20 @@ class CompressionViewModel(
         imageQuality = DEFAULT_IMAGE_QUALITY
         imagesToPdfName = items.firstOrNull()?.outputName ?: "images"
         imagesToPdfQuality = DEFAULT_IMAGE_QUALITY
+        imagesAsPdf = false
         _state.value = CompressionState.Idle
+    }
+
+    /** Toggles the unified Images tool between image-file output and a single PDF. */
+    fun updateImagesAsPdf(asPdf: Boolean) {
+        imagesAsPdf = asPdf
+    }
+
+    /** Stores a per-image edit (rotate / flip / crop / resize) for one batch item. */
+    fun updateImageEditSpec(index: Int, spec: ImageEditSpec?) {
+        imageItems = imageItems.mapIndexed { i, item ->
+            if (i == index) item.copy(editSpec = spec) else item
+        }
     }
 
     fun updateImagesToPdfName(name: String) {
@@ -303,6 +303,13 @@ class CompressionViewModel(
         pdfToImageConverter.convert(input, pdfImageFormat, pdfImageQuality)
     }
 
+    /** Exports the selected PDF as a PowerPoint deck — one full-bleed slide per page. */
+    fun startPdfToPptx() = launchJob {
+        val input = pdfInput
+            ?: throw CompressionException("No document selected. Please pick a PDF first.")
+        officeConverter.convert(input, OnlineConversion.PDF_TO_PPT)
+    }
+
     /** Kicks off batch image conversion on a background coroutine (Screen 3 entry). */
     fun startImageConversion() = launchJob {
         if (imageItems.isEmpty()) {
@@ -342,29 +349,6 @@ class CompressionViewModel(
         } else {
             onlineConversionService.convert(input, conversion)
         }
-    }
-
-    // ===================== Image Studio (resize / crop / rotate) =====================
-
-    fun onImageEditPicked(uri: Uri) {
-        viewModelScope.launch {
-            val picked = withContext(Dispatchers.IO) { storage.resolveMetadata(uri, FileType.IMAGE) }
-            imageEditSource = picked
-            imageEditName = storage.baseNameOf(picked.displayName)
-            _state.value = CompressionState.Idle
-        }
-    }
-
-    fun updateImageEditName(name: String) {
-        imageEditName = name
-    }
-
-    /** Applies the on-screen edit (rotate/flip/crop/resize + format) to the picked image. */
-    fun startImageEdit(spec: ImageEditSpec) = launchJob {
-        val input = imageEditSource
-            ?: throw CompressionException("No image selected. Please pick an image first.")
-        val name = imageEditName.ifBlank { storage.baseNameOf(input.displayName) }
-        imageEditor.edit(input, spec, name)
     }
 
     // ===================== PDF page editor (reorder / rotate / delete) ================
@@ -515,28 +499,6 @@ class CompressionViewModel(
         pdfProtector.unlock(input, password, name)
     }
 
-    // ===================== Sign PDF =================================================
-
-    fun onSignPicked(uri: Uri) {
-        viewModelScope.launch {
-            val picked = withContext(Dispatchers.IO) { storage.resolveMetadata(uri, FileType.PDF) }
-            signSource = picked
-            signName = storage.baseNameOf(picked.displayName) + "-signed"
-            _state.value = CompressionState.Idle
-        }
-    }
-
-    fun updateSignName(name: String) {
-        signName = name
-    }
-
-    fun startSign(signaturePng: ByteArray, placement: SignaturePlacement) = launchJob {
-        val input = signSource
-            ?: throw CompressionException("No document selected. Please pick a PDF first.")
-        val name = signName.ifBlank { storage.baseNameOf(input.displayName) + "-signed" }
-        pdfSigner.sign(input, signaturePng, placement, name)
-    }
-
     // ===================== Annotate PDF ============================================
 
     fun onAnnotatePicked(uri: Uri) {
@@ -596,12 +558,11 @@ class CompressionViewModel(
         imageQuality = DEFAULT_IMAGE_QUALITY
         imagesToPdfName = ""
         imagesToPdfQuality = DEFAULT_IMAGE_QUALITY
+        imagesAsPdf = false
         txtInput = null
         txtPdfName = ""
         txtFontSize = DEFAULT_TXT_FONT_SIZE
         onlineConversion = null
-        imageEditSource = null
-        imageEditName = ""
         pdfPagesSource = null
         pdfPageOps = emptyList()
         pdfPagesName = ""
@@ -612,8 +573,6 @@ class CompressionViewModel(
         splitPageCount = 0
         protectSource = null
         protectName = ""
-        signSource = null
-        signName = ""
         annotateSource = null
         annotateName = ""
         _state.value = CompressionState.Idle
