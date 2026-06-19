@@ -7,7 +7,6 @@ import com.nexcompress.app.data.local.NexCompressDatabase
 import com.nexcompress.app.data.processor.DocxToPdfConverter
 import com.nexcompress.app.data.processor.FileStorageManager
 import com.nexcompress.app.data.processor.ImageConverter
-import com.nexcompress.app.data.processor.ImageEditor
 import com.nexcompress.app.data.processor.ImagesToPdfConverter
 import com.nexcompress.app.data.processor.OfficeConverter
 import com.nexcompress.app.data.processor.PdfCompressor
@@ -15,7 +14,6 @@ import com.nexcompress.app.data.processor.PdfMerger
 import com.nexcompress.app.data.processor.PdfPageEditor
 import com.nexcompress.app.data.processor.PdfProtector
 import com.nexcompress.app.data.processor.PdfAnnotator
-import com.nexcompress.app.data.processor.PdfSigner
 import com.nexcompress.app.data.processor.PdfSplitter
 import com.nexcompress.app.data.processor.PdfToDocxConverter
 import com.nexcompress.app.data.processor.PdfToImageConverter
@@ -52,13 +50,11 @@ class AppContainer(context: Context) {
         TxtToPdfConverter(appContext, fileStorageManager)
     }
 
-    // --- Advanced on-device tools (PDFBox engine + native image studio) ---
-    val imageEditor: ImageEditor by lazy { ImageEditor(appContext, fileStorageManager) }
+    // --- Advanced on-device tools (PDFBox engine) ---
     val pdfPageEditor: PdfPageEditor by lazy { PdfPageEditor(appContext, fileStorageManager) }
     val pdfMerger: PdfMerger by lazy { PdfMerger(appContext, fileStorageManager) }
     val pdfSplitter: PdfSplitter by lazy { PdfSplitter(appContext, fileStorageManager) }
     val pdfProtector: PdfProtector by lazy { PdfProtector(appContext, fileStorageManager) }
-    val pdfSigner: PdfSigner by lazy { PdfSigner(appContext, fileStorageManager) }
     val pdfAnnotator: PdfAnnotator by lazy { PdfAnnotator(appContext, fileStorageManager) }
 
     // --- On-device Office conversions (docx/xlsx/pptx are zip+XML) ---

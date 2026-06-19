@@ -32,7 +32,8 @@ class PdfToImageConverter(
     suspend fun convert(
         input: PickedFile,
         format: ImageFormat,
-        quality: Int
+        quality: Int,
+        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }
     ): CompressionResult = withContext(Dispatchers.IO) {
         val uri = Uri.parse(input.uriString)
         var pfd: ParcelFileDescriptor? = null
@@ -52,6 +53,7 @@ class PdfToImageConverter(
             for (index in 0 until pageCount) {
                 coroutineContext.ensureActive() // cooperative cancellation
                 produced += renderPageToImage(renderer, index, baseName, format, quality, pageCount)
+                onProgress(index + 1, pageCount)
             }
             CompressionResult(produced)
         } catch (oom: OutOfMemoryError) {

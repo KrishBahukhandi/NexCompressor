@@ -37,7 +37,8 @@ class ImageConverter(
     suspend fun convert(
         items: List<ImageBatchItem>,
         format: ImageFormat,
-        quality: Int
+        quality: Int,
+        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }
     ): CompressionResult = withContext(Dispatchers.IO) {
         if (items.isEmpty()) {
             throw CompressionException("No images were selected for conversion.")
@@ -46,7 +47,7 @@ class ImageConverter(
         val produced = mutableListOf<OutputItem>()
         val failures = mutableListOf<String>()
 
-        for (item in items) {
+        items.forEachIndexed { index, item ->
             coroutineContext.ensureActive() // cooperative cancellation
             val label = item.source.displayName
             try {
@@ -58,6 +59,7 @@ class ImageConverter(
                 Log.w(TAG, "Failed converting $label: ${e.message}", e)
                 failures += label
             }
+            onProgress(index + 1, items.size)
         }
 
         if (produced.isEmpty()) {
@@ -74,14 +76,21 @@ class ImageConverter(
         var source: Bitmap? = null
         var flattened: Bitmap? = null
         try {
-            source = decodeSampled(uri)
+            var work = decodeSampled(uri)
                 ?: throw CompressionException("Unable to decode ${input.displayName}.")
+            source = work
+
+            // Apply any per-image edit (rotate / flip / crop / resize) first.
+            item.editSpec?.let {
+                work = ImageTransforms.applyGeometry(work, it)
+                source = work
+            }
 
             // JPEG has no alpha channel — flatten transparency onto white first.
-            val toEncode = if (format == ImageFormat.JPEG && source.hasAlpha()) {
-                flattenOntoWhite(source).also { flattened = it }
+            val toEncode = if (format == ImageFormat.JPEG && work.hasAlpha()) {
+                flattenOntoWhite(work).also { flattened = it }
             } else {
-                source
+                work
             }
 
             val outName = storage.composeOutputName(item.outputName, format.extension)

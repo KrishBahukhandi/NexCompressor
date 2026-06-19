@@ -8,7 +8,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nexcompress.app.data.processor.FileStorageManager
 import com.nexcompress.app.data.processor.ImageConverter
-import com.nexcompress.app.data.processor.ImageEditor
 import com.nexcompress.app.data.processor.ImagesToPdfConverter
 import com.nexcompress.app.data.processor.OfficeConverter
 import com.nexcompress.app.data.processor.PdfAnnotator
@@ -16,7 +15,6 @@ import com.nexcompress.app.data.processor.PdfCompressor
 import com.nexcompress.app.data.processor.PdfMerger
 import com.nexcompress.app.data.processor.PdfPageEditor
 import com.nexcompress.app.data.processor.PdfProtector
-import com.nexcompress.app.data.processor.PdfSigner
 import com.nexcompress.app.data.processor.PdfSplitter
 import com.nexcompress.app.data.processor.PdfToImageConverter
 import com.nexcompress.app.data.processor.TxtToPdfConverter
@@ -34,14 +32,20 @@ import com.nexcompress.app.domain.model.OnlineConversion
 import com.nexcompress.app.domain.model.PdfAnnotation
 import com.nexcompress.app.domain.model.PdfPageOp
 import com.nexcompress.app.domain.model.PickedFile
-import com.nexcompress.app.domain.model.SignaturePlacement
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/**
+ * Progress of a multi-step job. [total] > 1 means a determinate bar can be shown
+ * ("[done] of [total]"); otherwise the job is a single op and stays indeterminate.
+ */
+data class JobProgress(val done: Int, val total: Int)
 
 /**
  * Shared ViewModel for the compression flow (Config -> Processing -> Results).
@@ -55,12 +59,10 @@ class CompressionViewModel(
     private val pdfToImageConverter: PdfToImageConverter,
     private val imagesToPdfConverter: ImagesToPdfConverter,
     private val txtToPdfConverter: TxtToPdfConverter,
-    private val imageEditor: ImageEditor,
     private val pdfPageEditor: PdfPageEditor,
     private val pdfMerger: PdfMerger,
     private val pdfSplitter: PdfSplitter,
     private val pdfProtector: PdfProtector,
-    private val pdfSigner: PdfSigner,
     private val pdfAnnotator: PdfAnnotator,
     private val officeConverter: OfficeConverter,
     private val onlineConversionService: OnlineConversionService
@@ -99,6 +101,10 @@ class CompressionViewModel(
     var imagesToPdfQuality by mutableStateOf(DEFAULT_IMAGE_QUALITY)
         private set
 
+    /** Unified Images tool: false = export converted image files, true = one PDF. */
+    var imagesAsPdf by mutableStateOf(false)
+        private set
+
     // --- TXT → PDF config ---
     var txtInput by mutableStateOf<PickedFile?>(null)
         private set
@@ -109,12 +115,6 @@ class CompressionViewModel(
 
     // --- Online (Office) conversion ---
     var onlineConversion by mutableStateOf<OnlineConversion?>(null)
-        private set
-
-    // --- Image Studio (resize / crop / rotate) ---
-    var imageEditSource by mutableStateOf<PickedFile?>(null)
-        private set
-    var imageEditName by mutableStateOf("")
         private set
 
     // --- PDF page editor (reorder / rotate / delete) ---
@@ -145,12 +145,6 @@ class CompressionViewModel(
     var protectName by mutableStateOf("")
         private set
 
-    // --- Sign PDF ---
-    var signSource by mutableStateOf<PickedFile?>(null)
-        private set
-    var signName by mutableStateOf("")
-        private set
-
     // --- Annotate PDF ---
     var annotateSource by mutableStateOf<PickedFile?>(null)
         private set
@@ -160,6 +154,18 @@ class CompressionViewModel(
     // --- Processing state (Screen 3 / 4) ---
     private val _state = MutableStateFlow<CompressionState>(CompressionState.Idle)
     val state: StateFlow<CompressionState> = _state.asStateFlow()
+
+    /** Per-item progress for multi-step jobs; null = indeterminate (single op). */
+    private val _progress = MutableStateFlow<JobProgress?>(null)
+    val progress: StateFlow<JobProgress?> = _progress.asStateFlow()
+
+    /** The in-flight processing job, so it can be cancelled from the UI. */
+    private var currentJob: Job? = null
+
+    /** Reports progress to the UI from inside an engine loop (thread-safe). */
+    private val progressReporter: (Int, Int) -> Unit = { done, total ->
+        _progress.value = JobProgress(done, total)
+    }
 
     /** Resolves PDF metadata off the main thread, then arms Screen 2. */
     fun onPdfPicked(uri: Uri) {
@@ -251,7 +257,20 @@ class CompressionViewModel(
         imageQuality = DEFAULT_IMAGE_QUALITY
         imagesToPdfName = items.firstOrNull()?.outputName ?: "images"
         imagesToPdfQuality = DEFAULT_IMAGE_QUALITY
+        imagesAsPdf = false
         _state.value = CompressionState.Idle
+    }
+
+    /** Toggles the unified Images tool between image-file output and a single PDF. */
+    fun updateImagesAsPdf(asPdf: Boolean) {
+        imagesAsPdf = asPdf
+    }
+
+    /** Stores a per-image edit (rotate / flip / crop / resize) for one batch item. */
+    fun updateImageEditSpec(index: Int, spec: ImageEditSpec?) {
+        imageItems = imageItems.mapIndexed { i, item ->
+            if (i == index) item.copy(editSpec = spec) else item
+        }
     }
 
     fun updateImagesToPdfName(name: String) {
@@ -300,7 +319,14 @@ class CompressionViewModel(
     fun startPdfToImages() = launchJob {
         val input = pdfInput
             ?: throw CompressionException("No document selected. Please pick a PDF first.")
-        pdfToImageConverter.convert(input, pdfImageFormat, pdfImageQuality)
+        pdfToImageConverter.convert(input, pdfImageFormat, pdfImageQuality, progressReporter)
+    }
+
+    /** Exports the selected PDF as a PowerPoint deck — one full-bleed slide per page. */
+    fun startPdfToPptx() = launchJob {
+        val input = pdfInput
+            ?: throw CompressionException("No document selected. Please pick a PDF first.")
+        officeConverter.convert(input, OnlineConversion.PDF_TO_PPT)
     }
 
     /** Kicks off batch image conversion on a background coroutine (Screen 3 entry). */
@@ -308,7 +334,7 @@ class CompressionViewModel(
         if (imageItems.isEmpty()) {
             throw CompressionException("No images selected. Please pick up to 5 images first.")
         }
-        imageConverter.convert(imageItems, selectedFormat, imageQuality)
+        imageConverter.convert(imageItems, selectedFormat, imageQuality, progressReporter)
     }
 
     /** Combines the picked images (in current order) into a single PDF (Screen 3 entry). */
@@ -317,7 +343,7 @@ class CompressionViewModel(
             throw CompressionException("No images selected. Please pick up to 5 images first.")
         }
         val name = imagesToPdfName.ifBlank { "images" }
-        imagesToPdfConverter.convert(imageItems, name, imagesToPdfQuality)
+        imagesToPdfConverter.convert(imageItems, name, imagesToPdfQuality, progressReporter)
     }
 
     /** Renders the picked text file into a paginated PDF (Screen 3 entry). */
@@ -342,29 +368,6 @@ class CompressionViewModel(
         } else {
             onlineConversionService.convert(input, conversion)
         }
-    }
-
-    // ===================== Image Studio (resize / crop / rotate) =====================
-
-    fun onImageEditPicked(uri: Uri) {
-        viewModelScope.launch {
-            val picked = withContext(Dispatchers.IO) { storage.resolveMetadata(uri, FileType.IMAGE) }
-            imageEditSource = picked
-            imageEditName = storage.baseNameOf(picked.displayName)
-            _state.value = CompressionState.Idle
-        }
-    }
-
-    fun updateImageEditName(name: String) {
-        imageEditName = name
-    }
-
-    /** Applies the on-screen edit (rotate/flip/crop/resize + format) to the picked image. */
-    fun startImageEdit(spec: ImageEditSpec) = launchJob {
-        val input = imageEditSource
-            ?: throw CompressionException("No image selected. Please pick an image first.")
-        val name = imageEditName.ifBlank { storage.baseNameOf(input.displayName) }
-        imageEditor.edit(input, spec, name)
     }
 
     // ===================== PDF page editor (reorder / rotate / delete) ================
@@ -479,7 +482,7 @@ class CompressionViewModel(
     fun startSplitEach() = launchJob {
         val input = splitSource
             ?: throw CompressionException("No document selected. Please pick a PDF first.")
-        pdfSplitter.splitEach(input, splitName.ifBlank { storage.baseNameOf(input.displayName) })
+        pdfSplitter.splitEach(input, splitName.ifBlank { storage.baseNameOf(input.displayName) }, progressReporter)
     }
 
     // ===================== Protect / unlock PDF =====================================
@@ -515,28 +518,6 @@ class CompressionViewModel(
         pdfProtector.unlock(input, password, name)
     }
 
-    // ===================== Sign PDF =================================================
-
-    fun onSignPicked(uri: Uri) {
-        viewModelScope.launch {
-            val picked = withContext(Dispatchers.IO) { storage.resolveMetadata(uri, FileType.PDF) }
-            signSource = picked
-            signName = storage.baseNameOf(picked.displayName) + "-signed"
-            _state.value = CompressionState.Idle
-        }
-    }
-
-    fun updateSignName(name: String) {
-        signName = name
-    }
-
-    fun startSign(signaturePng: ByteArray, placement: SignaturePlacement) = launchJob {
-        val input = signSource
-            ?: throw CompressionException("No document selected. Please pick a PDF first.")
-        val name = signName.ifBlank { storage.baseNameOf(input.displayName) + "-signed" }
-        pdfSigner.sign(input, signaturePng, placement, name)
-    }
-
     // ===================== Annotate PDF ============================================
 
     fun onAnnotatePicked(uri: Uri) {
@@ -562,7 +543,8 @@ class CompressionViewModel(
     private fun launchJob(work: suspend () -> CompressionResult) {
         if (_state.value is CompressionState.Loading) return
         _state.value = CompressionState.Loading
-        viewModelScope.launch {
+        _progress.value = null
+        currentJob = viewModelScope.launch {
             try {
                 val result = work()
                 // Local storage write routine — MUST complete before the
@@ -575,8 +557,22 @@ class CompressionViewModel(
                 _state.value = CompressionState.Error(e.message ?: "Processing failed.")
             } catch (e: Throwable) {
                 _state.value = CompressionState.Error("An unexpected error occurred. Please try again.")
+            } finally {
+                _progress.value = null
+                currentJob = null
             }
         }
+    }
+
+    /**
+     * Cancels the in-flight job (cooperative — engines check [ensureActive] between
+     * items) and returns to Idle. Any files already written in a batch are kept.
+     */
+    fun cancelProcessing() {
+        currentJob?.cancel()
+        currentJob = null
+        _progress.value = null
+        if (_state.value is CompressionState.Loading) _state.value = CompressionState.Idle
     }
 
     /** Returns to Idle (e.g. after dismissing an error popup). */
@@ -596,12 +592,11 @@ class CompressionViewModel(
         imageQuality = DEFAULT_IMAGE_QUALITY
         imagesToPdfName = ""
         imagesToPdfQuality = DEFAULT_IMAGE_QUALITY
+        imagesAsPdf = false
         txtInput = null
         txtPdfName = ""
         txtFontSize = DEFAULT_TXT_FONT_SIZE
         onlineConversion = null
-        imageEditSource = null
-        imageEditName = ""
         pdfPagesSource = null
         pdfPageOps = emptyList()
         pdfPagesName = ""
@@ -612,8 +607,6 @@ class CompressionViewModel(
         splitPageCount = 0
         protectSource = null
         protectName = ""
-        signSource = null
-        signName = ""
         annotateSource = null
         annotateName = ""
         _state.value = CompressionState.Idle

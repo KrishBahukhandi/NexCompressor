@@ -37,7 +37,8 @@ class ImagesToPdfConverter(
     suspend fun convert(
         items: List<ImageBatchItem>,
         outputBaseName: String,
-        quality: Int
+        quality: Int,
+        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }
     ): CompressionResult = withContext(Dispatchers.IO) {
         if (items.isEmpty()) {
             throw CompressionException("No images were selected.")
@@ -46,9 +47,10 @@ class ImagesToPdfConverter(
         val document = PDDocument()
         try {
             var pagesAdded = 0
-            for (item in items) {
+            items.forEachIndexed { index, item ->
                 coroutineContext.ensureActive() // cooperative cancellation
                 if (addImagePage(document, item, quality)) pagesAdded++
+                onProgress(index + 1, items.size)
             }
             if (pagesAdded == 0) {
                 throw CompressionException(
@@ -89,13 +91,20 @@ class ImagesToPdfConverter(
         var source: Bitmap? = null
         var flattened: Bitmap? = null
         try {
-            source = ImageDecoding.decodeUpright(context, uri, MAX_DIMENSION) ?: return false
+            var work = ImageDecoding.decodeUpright(context, uri, MAX_DIMENSION) ?: return false
+            source = work
+
+            // Apply any per-image edit (rotate / flip / crop / resize) first.
+            item.editSpec?.let {
+                work = ImageTransforms.applyGeometry(work, it)
+                source = work
+            }
 
             // Pages embed JPEG, so flatten any transparency onto white.
-            val toEncode = if (source.hasAlpha()) {
-                flattenOntoWhite(source).also { flattened = it }
+            val toEncode = if (work.hasAlpha()) {
+                flattenOntoWhite(work).also { flattened = it }
             } else {
-                source
+                work
             }
 
             val jpeg = ByteArrayOutputStream().use { baos ->

@@ -27,12 +27,10 @@ object AppViewModelProvider {
                 pdfToImageConverter = container.pdfToImageConverter,
                 imagesToPdfConverter = container.imagesToPdfConverter,
                 txtToPdfConverter = container.txtToPdfConverter,
-                imageEditor = container.imageEditor,
                 pdfPageEditor = container.pdfPageEditor,
                 pdfMerger = container.pdfMerger,
                 pdfSplitter = container.pdfSplitter,
                 pdfProtector = container.pdfProtector,
-                pdfSigner = container.pdfSigner,
                 pdfAnnotator = container.pdfAnnotator,
                 officeConverter = container.officeConverter,
                 onlineConversionService = container.onlineConversionService

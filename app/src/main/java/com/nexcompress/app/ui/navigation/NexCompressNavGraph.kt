@@ -1,19 +1,36 @@
 package com.nexcompress.app.ui.navigation
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Collections
+import androidx.compose.material.icons.filled.ContentCut
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Draw
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import android.net.Uri
 import com.nexcompress.app.ads.AdManager
+import com.nexcompress.app.domain.model.OnlineConversion
 import com.nexcompress.app.ui.AppViewModelProvider
 import com.nexcompress.app.ui.CompressionViewModel
+import com.nexcompress.app.ui.about.AboutScreen
 import com.nexcompress.app.ui.home.HomeScreen
-import com.nexcompress.app.ui.imageconfig.ImageConfigScreen
-import com.nexcompress.app.ui.imagestopdf.ImagesToPdfConfigScreen
-import com.nexcompress.app.ui.imagestudio.ImageStudioScreen
+import com.nexcompress.app.ui.share.ShareAction
+import com.nexcompress.app.ui.share.SharePdfChooserDialog
+import com.nexcompress.app.ui.share.SharedInput
+import com.nexcompress.app.ui.images.ImagesScreen
 import com.nexcompress.app.ui.mergepdf.MergePdfScreen
 import com.nexcompress.app.ui.pdfconfig.PdfConfigScreen
 import com.nexcompress.app.ui.pdfpages.PdfPageEditorScreen
@@ -22,7 +39,6 @@ import com.nexcompress.app.ui.processing.ProcessingScreen
 import com.nexcompress.app.ui.protectpdf.ProtectPdfScreen
 import com.nexcompress.app.ui.results.ResultsScreen
 import com.nexcompress.app.ui.annotatepdf.AnnotatePdfScreen
-import com.nexcompress.app.ui.signpdf.SignPdfScreen
 import com.nexcompress.app.ui.splitpdf.SplitPdfScreen
 import com.nexcompress.app.ui.txttopdf.TxtToPdfConfigScreen
 import com.nexcompress.app.ui.util.findActivity
@@ -35,13 +51,42 @@ import com.nexcompress.app.ui.util.findActivity
 fun NexCompressNavGraph(
     navController: NavHostController,
     adManager: AdManager,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    sharedInput: SharedInput? = null,
+    onSharedInputHandled: () -> Unit = {}
 ) {
     val activity = LocalContext.current.findActivity()
     val compressionViewModel: CompressionViewModel = viewModel(
         viewModelStoreOwner = activity,
         factory = AppViewModelProvider.Factory
     )
+
+    // A single shared-in PDF is ambiguous, so we hold it and let the user choose.
+    var sharedPdfUri by remember { mutableStateOf<Uri?>(null) }
+
+    // Route a file shared into the app from another app's share menu.
+    LaunchedEffect(sharedInput) {
+        val s = sharedInput ?: return@LaunchedEffect
+        when (s.kind) {
+            SharedInput.Kind.IMAGE -> {
+                compressionViewModel.onImagesPicked(s.uris.take(CompressionViewModel.MAX_IMAGE_SELECTION))
+                navController.navigate(Destinations.IMAGES)
+            }
+            SharedInput.Kind.TEXT -> {
+                compressionViewModel.onTxtPicked(s.uris.first())
+                navController.navigate(Destinations.TXT_TO_PDF_CONFIG)
+            }
+            SharedInput.Kind.PDF -> {
+                if (s.uris.size > 1) {
+                    compressionViewModel.onMergePicked(s.uris)
+                    navController.navigate(Destinations.MERGE_PDF)
+                } else {
+                    sharedPdfUri = s.uris.first()
+                }
+            }
+        }
+        onSharedInputHandled()
+    }
 
     NavHost(
         navController = navController,
@@ -53,19 +98,22 @@ fun NexCompressNavGraph(
             HomeScreen(
                 compressionViewModel = compressionViewModel,
                 onOpenPdfConfig = { navController.navigate(Destinations.PDF_CONFIG) },
-                onOpenImageConfig = { navController.navigate(Destinations.IMAGE_CONFIG) },
+                onOpenImages = { navController.navigate(Destinations.IMAGES) },
                 onOpenPdfToImageConfig = { navController.navigate(Destinations.PDF_TO_IMAGE_CONFIG) },
-                onOpenImagesToPdfConfig = { navController.navigate(Destinations.IMAGES_TO_PDF_CONFIG) },
                 onOpenTxtToPdfConfig = { navController.navigate(Destinations.TXT_TO_PDF_CONFIG) },
-                onOpenImageStudio = { navController.navigate(Destinations.IMAGE_STUDIO) },
                 onOpenPdfPages = { navController.navigate(Destinations.PDF_PAGES) },
                 onOpenMergePdf = { navController.navigate(Destinations.MERGE_PDF) },
                 onOpenSplitPdf = { navController.navigate(Destinations.SPLIT_PDF) },
                 onOpenProtectPdf = { navController.navigate(Destinations.PROTECT_PDF) },
-                onOpenSignPdf = { navController.navigate(Destinations.SIGN_PDF) },
                 onOpenAnnotatePdf = { navController.navigate(Destinations.ANNOTATE_PDF) },
+                onOpenAbout = { navController.navigate(Destinations.ABOUT) },
                 onOpenProcessing = { navController.navigate(Destinations.PROCESSING) }
             )
+        }
+
+        // About / Privacy / Help
+        composable(Destinations.ABOUT) {
+            AboutScreen(onBack = { navController.popBackStack() })
         }
 
         // Screen 2a — PDF Configuration Control
@@ -86,18 +134,9 @@ fun NexCompressNavGraph(
             )
         }
 
-        // Screen 2b — Image Conversion Control (PRD Flow B)
-        composable(Destinations.IMAGE_CONFIG) {
-            ImageConfigScreen(
-                viewModel = compressionViewModel,
-                onBack = { navController.popBackStack() },
-                onStartProcessing = { navController.navigate(Destinations.PROCESSING) }
-            )
-        }
-
-        // Images → PDF conversion config
-        composable(Destinations.IMAGES_TO_PDF_CONFIG) {
-            ImagesToPdfConfigScreen(
+        // Unified Images tool — convert / edit / images→PDF
+        composable(Destinations.IMAGES) {
+            ImagesScreen(
                 viewModel = compressionViewModel,
                 onBack = { navController.popBackStack() },
                 onStartProcessing = { navController.navigate(Destinations.PROCESSING) }
@@ -107,15 +146,6 @@ fun NexCompressNavGraph(
         // TXT → PDF conversion config
         composable(Destinations.TXT_TO_PDF_CONFIG) {
             TxtToPdfConfigScreen(
-                viewModel = compressionViewModel,
-                onBack = { navController.popBackStack() },
-                onStartProcessing = { navController.navigate(Destinations.PROCESSING) }
-            )
-        }
-
-        // Image Studio — resize / crop / rotate
-        composable(Destinations.IMAGE_STUDIO) {
-            ImageStudioScreen(
                 viewModel = compressionViewModel,
                 onBack = { navController.popBackStack() },
                 onStartProcessing = { navController.navigate(Destinations.PROCESSING) }
@@ -158,15 +188,6 @@ fun NexCompressNavGraph(
             )
         }
 
-        // Sign PDF
-        composable(Destinations.SIGN_PDF) {
-            SignPdfScreen(
-                viewModel = compressionViewModel,
-                onBack = { navController.popBackStack() },
-                onStartProcessing = { navController.navigate(Destinations.PROCESSING) }
-            )
-        }
-
         // Annotate PDF (markup editor)
         composable(Destinations.ANNOTATE_PDF) {
             AnnotatePdfScreen(
@@ -188,7 +209,11 @@ fun NexCompressNavGraph(
                         launchSingleTop = true
                     }
                 },
-                onError = { navController.popBackStack() }
+                onError = { navController.popBackStack() },
+                onCancel = {
+                    compressionViewModel.cancelProcessing()
+                    navController.popBackStack()
+                }
             )
         }
 
@@ -205,5 +230,37 @@ fun NexCompressNavGraph(
                 }
             )
         }
+    }
+
+    // "What do you want to do with this PDF?" sheet for a single shared-in PDF.
+    sharedPdfUri?.let { uri ->
+        val close = { sharedPdfUri = null }
+        SharePdfChooserDialog(
+            onDismiss = close,
+            actions = listOf(
+                ShareAction("Compress PDF", Icons.Filled.Bolt) {
+                    compressionViewModel.onPdfPicked(uri); navController.navigate(Destinations.PDF_CONFIG)
+                },
+                ShareAction("Edit & sign", Icons.Filled.Draw) {
+                    compressionViewModel.onAnnotatePicked(uri); navController.navigate(Destinations.ANNOTATE_PDF)
+                },
+                ShareAction("Export (images / slides)", Icons.Filled.Collections) {
+                    compressionViewModel.onPdfPicked(uri); navController.navigate(Destinations.PDF_TO_IMAGE_CONFIG)
+                },
+                ShareAction("Edit pages", Icons.Filled.Layers) {
+                    compressionViewModel.onPdfPagesPicked(uri); navController.navigate(Destinations.PDF_PAGES)
+                },
+                ShareAction("Split", Icons.Filled.ContentCut) {
+                    compressionViewModel.onSplitPicked(uri); navController.navigate(Destinations.SPLIT_PDF)
+                },
+                ShareAction("Protect", Icons.Filled.Lock) {
+                    compressionViewModel.onProtectPicked(uri); navController.navigate(Destinations.PROTECT_PDF)
+                },
+                ShareAction("Convert to Word", Icons.Filled.Description) {
+                    compressionViewModel.startOnlineConversion(uri, OnlineConversion.PDF_TO_WORD)
+                    navController.navigate(Destinations.PROCESSING)
+                }
+            )
+        )
     }
 }
