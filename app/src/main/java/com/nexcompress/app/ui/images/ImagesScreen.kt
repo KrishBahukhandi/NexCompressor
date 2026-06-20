@@ -277,6 +277,21 @@ fun ImagesScreen(
                     lossless = false,
                     onChange = { viewModel.updateImagesToPdfQuality(it) }
                 )
+                Spacer(Modifier.height(6.dp))
+                SectionLabel("Page size")
+                val fitA4 = viewModel.imagesPdfFitA4
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    SegmentedButton(
+                        selected = fitA4,
+                        onClick = { viewModel.updateImagesPdfFitA4(true) },
+                        shape = SegmentedButtonDefaults.itemShape(0, 2)
+                    ) { Text("Fit to A4") }
+                    SegmentedButton(
+                        selected = !fitA4,
+                        onClick = { viewModel.updateImagesPdfFitA4(false) },
+                        shape = SegmentedButtonDefaults.itemShape(1, 2)
+                    ) { Text("Match image") }
+                }
             } else {
                 Spacer(Modifier.height(4.dp))
                 SectionLabel("Output format")
@@ -491,9 +506,16 @@ private fun ImageEditorPanel(
     var cropB by remember { mutableFloatStateOf(initialCrop.bottom) }
     var maxLongEdge by remember { mutableStateOf(initial?.maxLongEdge) }
 
-    // Reset the crop frame whenever orientation changes (image dimensions change).
+    // Reset the crop frame whenever orientation CHANGES (image dimensions change).
+    // Seeded with the initial orientation so the first composition doesn't wipe a
+    // crop carried in from a previous edit of this image.
+    var lastOrient by remember { mutableStateOf(Triple(rotation, flipH, flipV)) }
     LaunchedEffect(rotation, flipH, flipV) {
-        cropL = 0f; cropT = 0f; cropR = 1f; cropB = 1f
+        val now = Triple(rotation, flipH, flipV)
+        if (now != lastOrient) {
+            cropL = 0f; cropT = 0f; cropR = 1f; cropB = 1f
+            lastOrient = now
+        }
     }
 
     var previewFailed by remember(source.uriString, rotation, flipH, flipV) { mutableStateOf(false) }

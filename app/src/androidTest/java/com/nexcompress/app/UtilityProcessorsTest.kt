@@ -159,6 +159,12 @@ class UtilityProcessorsTest {
                     assertTrue("EXIF rotation not applied to page 1", p1.height > p1.width)
                     val p2 = doc.getPage(1).mediaBox
                     assertTrue(p2.width > p2.height)
+                    // Images are fitted onto standard A4 pages (595 x 842 pt),
+                    // in the orientation of each image — not the raw pixel size.
+                    assertEquals("page 1 should be A4 portrait width", 595f, p1.width, 1f)
+                    assertEquals("page 1 should be A4 portrait height", 842f, p1.height, 1f)
+                    assertEquals("page 2 should be A4 landscape width", 842f, p2.width, 1f)
+                    assertEquals("page 2 should be A4 landscape height", 595f, p2.height, 1f)
                 }
             } finally {
                 staged.delete()
