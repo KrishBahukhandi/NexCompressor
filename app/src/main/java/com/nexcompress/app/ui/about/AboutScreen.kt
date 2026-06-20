@@ -40,12 +40,11 @@ import com.nexcompress.app.ui.components.SectionLabel
 import com.nexcompress.app.ui.theme.NexGreen
 import com.nexcompress.app.ui.util.IntentUtils
 
-/**
- * Hosted privacy policy URL (required by the Play Store when shipping ads).
- * Leave blank until one is published — the "Read the full policy" button stays
- * hidden while it's empty, so nothing links to a dead page.
- */
-private const val PRIVACY_POLICY_URL = ""
+/** Hosted privacy policy (opened from the privacy card). Blank hides the button. */
+private const val PRIVACY_POLICY_URL = "https://krishbahukhandi.github.io/NexCompressor_website/#privacy"
+
+/** Hosted support page (opened from Help & FAQ). Blank hides the button. */
+private const val SUPPORT_URL = "https://krishbahukhandi.github.io/NexCompressor_website/#support"
 
 private data class Faq(val q: String, val a: String)
 
@@ -181,6 +180,18 @@ fun AboutScreen(onBack: () -> Unit) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                }
+            }
+
+            if (SUPPORT_URL.isNotBlank()) {
+                Spacer(Modifier.height(4.dp))
+                OutlinedButton(
+                    onClick = { IntentUtils.openUrl(context, SUPPORT_URL) },
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.size(8.dp))
+                    Text("Contact support")
                 }
             }
             Spacer(Modifier.height(24.dp))
