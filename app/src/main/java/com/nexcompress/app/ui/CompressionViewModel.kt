@@ -101,6 +101,10 @@ class CompressionViewModel(
     var imagesToPdfQuality by mutableStateOf(DEFAULT_IMAGE_QUALITY)
         private set
 
+    /** Images → PDF page sizing: true = fit each image onto A4, false = page = image size. */
+    var imagesPdfFitA4 by mutableStateOf(true)
+        private set
+
     /** Unified Images tool: false = export converted image files, true = one PDF. */
     var imagesAsPdf by mutableStateOf(false)
         private set
@@ -258,12 +262,18 @@ class CompressionViewModel(
         imagesToPdfName = items.firstOrNull()?.outputName ?: "images"
         imagesToPdfQuality = DEFAULT_IMAGE_QUALITY
         imagesAsPdf = false
+        imagesPdfFitA4 = true
         _state.value = CompressionState.Idle
     }
 
     /** Toggles the unified Images tool between image-file output and a single PDF. */
     fun updateImagesAsPdf(asPdf: Boolean) {
         imagesAsPdf = asPdf
+    }
+
+    /** Images → PDF: true fits each image onto A4, false sizes the page to the image. */
+    fun updateImagesPdfFitA4(fit: Boolean) {
+        imagesPdfFitA4 = fit
     }
 
     /** Stores a per-image edit (rotate / flip / crop / resize) for one batch item. */
@@ -343,7 +353,7 @@ class CompressionViewModel(
             throw CompressionException("No images selected. Please pick up to 5 images first.")
         }
         val name = imagesToPdfName.ifBlank { "images" }
-        imagesToPdfConverter.convert(imageItems, name, imagesToPdfQuality, progressReporter)
+        imagesToPdfConverter.convert(imageItems, name, imagesToPdfQuality, imagesPdfFitA4, progressReporter)
     }
 
     /** Renders the picked text file into a paginated PDF (Screen 3 entry). */
@@ -593,6 +603,7 @@ class CompressionViewModel(
         imagesToPdfName = ""
         imagesToPdfQuality = DEFAULT_IMAGE_QUALITY
         imagesAsPdf = false
+        imagesPdfFitA4 = true
         txtInput = null
         txtPdfName = ""
         txtFontSize = DEFAULT_TXT_FONT_SIZE
