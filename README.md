@@ -18,43 +18,47 @@ Compress PDFs, convert images, and turn files between formats — almost entirel
 
 ## ✨ Features
 
-### On-device (offline, native — no network)
-| Tool | Description |
-|------|-------------|
-| **Compress PDF** | Recompresses the images inside the document (Recommended / Balanced / High-Fidelity profiles) while text & vectors stay sharp — never produces a larger file. |
-| **Convert Images** | Any image (JPG/PNG/HEIC/BMP/WebP) → **JPG / PNG / WebP**, batch up to 5, per-file rename, drag-to-reorder. |
-| **PDF → Images** | Export every PDF page as JPG / PNG / WebP. |
-| **Images → PDF** | Combine photos into a single multi-page PDF (reorderable pages). |
-| **Text → PDF** | Lay a `.txt` file out into a clean, paginated A4 PDF. |
+Every tool runs **on-device** — your files never leave the phone (the only
+network use was ads, which are **currently disabled**).
 
-### Edit & sign (offline, lossless PDF engine)
-Powered by an on-device [PDFBox-Android](https://github.com/TomRoush/PdfBox-Android)
-engine — text stays selectable and **nothing is uploaded**.
+### Core tools (home screen)
 | Tool | Description |
 |------|-------------|
-| **Sign PDF** | Draw a signature with your finger, then drag & resize it onto any page. The signed page is flattened; every other page stays lossless. |
-| **Edit PDF pages** | Reorder (drag), rotate, or delete pages, then export. |
+| **Compress PDF** | Recompresses the images inside the document (Recommended / Smallest / Best-quality profiles) while text & vectors stay sharp — never produces a larger file. |
+| **Images** | Pick up to 5 photos, edit each (rotate / flip / crop / resize), then export as **JPG / PNG / WebP** files **or** combine them into a single **PDF**. Per-image rename, drag-to-reorder. |
+| **Edit & sign PDF** | Add text, draw with a pen, highlight, and drop a finger-drawn **signature** on any page. Pick font / size / colour; tap a placed item to edit or drag to move. |
+| **Edit PDF pages** | Reorder (drag), rotate, or delete pages, then export — lossless. |
+
+### More tools (drawer)
+| Tool | Description |
+|------|-------------|
+| **Export PDF** | Turn a PDF into page **images** (JPG / PNG / WebP) **or** a **PowerPoint** deck (one full-bleed slide per page). |
+| **Text → PDF** | Lay a `.txt` file out into a clean, paginated A4 PDF. |
 | **Merge PDFs** | Concatenate several PDFs into one (reorderable). |
 | **Split PDF** | Extract a chosen set of pages into one PDF, or burst every page into its own file. |
 | **Protect PDF** | Lock a PDF with a password (AES/standard security) or unlock a protected one — the password never leaves the device. |
-| **Image Studio** | Rotate, flip, crop (draggable frame) and resize an image, then re-encode to JPG / PNG / WebP. |
 
-### Document conversions (sidebar)
-Four run **fully on-device** (content-faithful; complex layout simplified):
-**Word → PDF**, **Excel → PDF**, **PDF → Word** (text-focused, with on-device
-**OCR** via Google ML Kit so scanned/image-only PDFs convert too — the model is
-bundled, nothing is uploaded) and **PDF → PowerPoint** (each page becomes a
-full-bleed slide image). Modern formats only (.docx/.xlsx/.pdf).
+The PDF tools run on an on-device [PDFBox-Android](https://github.com/TomRoush/PdfBox-Android)
+engine; the lossless ones keep text selectable.
 
-PowerPoint → PDF and PDF → Excel had no faithful offline path and were removed
-from the app; the pluggable [RestConversionService] remains in the codebase for
-a future keyed deployment but is no longer surfaced.
+### Document conversions (drawer)
+Run **fully on-device** (content-faithful; complex layout simplified):
+**Word → PDF**, **Excel → PDF**, and **PDF → Word** — text-focused, with on-device
+**OCR** via Google ML Kit so scanned/image-only PDFs convert too (the model is
+bundled, nothing is uploaded). Modern formats only (.docx/.xlsx/.pdf).
+
+> PowerPoint → PDF and PDF → Excel had no faithful offline path and were removed;
+> the pluggable `RestConversionService` remains in the codebase for a future keyed
+> deployment but isn't surfaced.
 
 ### Throughout
-- 📊 **Performance ledger** — cumulative storage reclaimed + file history (Room).
-- ✏️ Rename / 🔗 share / 👁 preview any output; files saved to `Downloads/NexCompress`.
-- 🔒 Scoped-storage compliant, **no runtime storage permissions**.
-- 💰 AdMob banner + interstitial bridge (test IDs included).
+- 🔗 **Share-to** — send a photo, PDF, or text file from any app's share sheet straight into NexCompress (a single shared PDF asks which tool to use).
+- 📊 **Performance ledger** — cumulative storage reclaimed + file history (Room), split across a **Home / History** bottom nav.
+- ⏳ **Cancellable jobs**, with an "X of Y" progress bar for multi-file work.
+- ✏️ Rename / 🔗 share / 👁 preview / 💾 save-a-copy any output; files land in `Downloads/NexCompress`. **Originals are never modified** — every result is a new file.
+- 🔒 Scoped-storage compliant via the **Storage Access Framework** — **no runtime storage permissions**.
+- ℹ️ **About & privacy** screen — offline-first statement, permission rationale, and an in-app FAQ.
+- 💰 AdMob banner + interstitial are wired but **currently switched off** via a one-line kill switch (`AdsConfig.ENABLED`).
 
 ## 📱 Screenshots
 
@@ -71,17 +75,19 @@ DI framework) and a single-Activity Jetpack Compose UI:
 com.nexcompress.app
 ├── data/
 │   ├── local/        # Room entity, DAO, database (history ledger)
-│   ├── processor/    # PdfCompressor, ImageConverter/Editor, PdfToImage, ImagesToPdf, TxtToPdf,
-│   │                 #   PdfPageEditor, PdfMerger, PdfSplitter, PdfProtector, PdfSigner, FileStorageManager
+│   ├── processor/    # PdfCompressor, ImageConverter, ImageEditor, ImageTransforms, PdfToImage,
+│   │                 #   ImagesToPdf, TxtToPdf, PdfAnnotator, PdfPageEditor, PdfMerger, PdfSplitter,
+│   │                 #   PdfProtector, OfficeConverter (+OcrEngine), FileStorageManager
 │   ├── remote/       # OnlineConversionService + RestConversionService (configurable)
 │   └── repository/   # HistoryRepository
 ├── domain/model/     # Sealed CompressionState, enums, result models
 ├── di/               # AppContainer (manual DI)
-└── ui/               # Compose screens, navigation, theme, shared ViewModel
+├── ads/              # AdManager + AdMobManager + AdsConfig (master kill switch)
+└── ui/               # Compose screens (incl. images/, about/, share/), navigation, theme, shared ViewModel
 ```
 
 - **Heavy work** runs on Kotlin Coroutines (`Dispatchers.IO`); every bitmap/stream/PDF
-  path is guarded against OOM & corruption.
+  path is guarded against OOM & corruption, and jobs are **cancellable**.
 - **State** is a sealed `CompressionState` (`Idle / Loading / Success / Error`).
 - **No backend** except the AdMob SDK and the optional, pluggable conversion service.
 
@@ -89,7 +95,8 @@ com.nexcompress.app
 
 Kotlin 2.0 · Jetpack Compose (Material 3) · Coroutines · Room · Navigation-Compose ·
 [PDFBox-Android](https://github.com/TomRoush/PdfBox-Android) (offline PDF engine) ·
-Google Mobile Ads · AGP 8.7 / Gradle 8.9 · `minSdk 26`, `compileSdk 35`.
+Google ML Kit (on-device OCR) · Google Mobile Ads · AGP 8.7 / Gradle 8.9 ·
+`minSdk 26`, `compileSdk 35`.
 
 ## 🚀 Build & run
 
@@ -126,8 +133,17 @@ CONVERT_BASE_URL=https://v2.convertapi.com   # default; any compatible endpoint 
 
 ## 📣 AdMob
 
-Ships with Google's **official test** ad unit IDs and sample App ID. Replace them
-(and the `APPLICATION_ID` in `AndroidManifest.xml`) before publishing.
+Banner + interstitial are wired with Google's **official test** ad-unit IDs and
+sample App ID, but **currently switched off** via `AdsConfig.ENABLED = false`
+(`ads/AdsConfig.kt`). To monetize: flip it to `true`, then replace the test IDs
+(and the `APPLICATION_ID` in `AndroidManifest.xml`) with your own.
+
+## 🔗 Privacy & support
+
+- **Privacy policy** — <https://krishbahukhandi.github.io/NexCompressor_website/#privacy>
+- **Support** — <https://krishbahukhandi.github.io/NexCompressor_website/#support>
+
+Both are also linked from the in-app **About & privacy** screen.
 
 ## 🌿 Branching model
 
