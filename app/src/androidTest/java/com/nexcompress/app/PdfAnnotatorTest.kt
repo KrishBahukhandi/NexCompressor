@@ -88,6 +88,14 @@ class PdfAnnotatorTest {
                         "un-annotated page lost its text",
                         stripper.getText(doc).contains("beta page")
                     )
+                    // Page 1 WAS annotated, but markup is laid down as a vector
+                    // overlay now — its underlying text must STILL be selectable
+                    // (the old pipeline rasterized the whole page and lost it).
+                    val page1 = PDFTextStripper().apply { startPage = 1; endPage = 1 }
+                    assertTrue(
+                        "annotated page was rasterized — its text is no longer selectable",
+                        page1.getText(doc).contains("alpha page")
+                    )
                 }
             } finally {
                 staged.delete()

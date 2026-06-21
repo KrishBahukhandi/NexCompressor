@@ -14,6 +14,7 @@ import com.nexcompress.app.domain.model.FileType
 import com.nexcompress.app.domain.model.ImageBatchItem
 import com.nexcompress.app.domain.model.ImageFormat
 import com.nexcompress.app.domain.model.OutputItem
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -47,19 +48,25 @@ class ImageConverter(
         val produced = mutableListOf<OutputItem>()
         val failures = mutableListOf<String>()
 
-        items.forEachIndexed { index, item ->
-            coroutineContext.ensureActive() // cooperative cancellation
-            val label = item.source.displayName
-            try {
-                produced += convertOne(item, format, quality)
-            } catch (oom: OutOfMemoryError) {
-                Log.w(TAG, "OOM converting $label")
-                failures += label
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed converting $label: ${e.message}", e)
-                failures += label
+        try {
+            items.forEachIndexed { index, item ->
+                coroutineContext.ensureActive() // cooperative cancellation
+                val label = item.source.displayName
+                try {
+                    produced += convertOne(item, format, quality)
+                } catch (oom: OutOfMemoryError) {
+                    Log.w(TAG, "OOM converting $label")
+                    failures += label
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed converting $label: ${e.message}", e)
+                    failures += label
+                }
+                onProgress(index + 1, items.size)
             }
-            onProgress(index + 1, items.size)
+        } catch (c: CancellationException) {
+            // Cancelled mid-batch — remove the images already written.
+            produced.forEach { storage.deleteOutput(it.uri) }
+            throw c
         }
 
         if (produced.isEmpty()) {
@@ -140,7 +147,13 @@ class ImageConverter(
     companion object {
         private const val TAG = "ImageConverter"
 
-        /** Longest-edge ceiling before down-sampling kicks in (OOM safeguard). */
-        private const val MAX_DIMENSION = 4096
+        /**
+         * Longest-edge ceiling before down-sampling kicks in. A plain format
+         * conversion should keep the source's resolution, so this sits high
+         * enough to pass typical phone (≤4032 px) and DSLR (~6000 px) photos
+         * through untouched; it only halves genuinely enormous images so a single
+         * one can't exhaust the heap (a failure there is isolated per-file anyway).
+         */
+        private const val MAX_DIMENSION = 8192
     }
 }

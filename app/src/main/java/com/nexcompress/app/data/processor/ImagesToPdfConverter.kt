@@ -15,6 +15,7 @@ import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
 import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
 import com.tom_roush.pdfbox.pdmodel.graphics.image.JPEGFactory
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -28,6 +29,11 @@ import kotlin.coroutines.coroutineContext
  * and embedded as JPEG streams at the chosen quality, so the quality slider
  * directly controls the output size. A single bad image is skipped rather than
  * aborting the whole job.
+ *
+ * Each image is fitted onto a standard **A4** page (in the image's orientation,
+ * centered with a small margin) so the output prints/opens like the major
+ * converters — unless [fitToA4] is off, in which case the page matches the
+ * image's exact pixel dimensions.
  */
 class ImagesToPdfConverter(
     private val context: Context,
@@ -38,6 +44,7 @@ class ImagesToPdfConverter(
         items: List<ImageBatchItem>,
         outputBaseName: String,
         quality: Int,
+        fitToA4: Boolean = true,
         onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }
     ): CompressionResult = withContext(Dispatchers.IO) {
         if (items.isEmpty()) {
@@ -49,7 +56,7 @@ class ImagesToPdfConverter(
             var pagesAdded = 0
             items.forEachIndexed { index, item ->
                 coroutineContext.ensureActive() // cooperative cancellation
-                if (addImagePage(document, item, quality)) pagesAdded++
+                if (addImagePage(document, item, quality, fitToA4)) pagesAdded++
                 onProgress(index + 1, items.size)
             }
             if (pagesAdded == 0) {
@@ -79,6 +86,8 @@ class ImagesToPdfConverter(
             throw CompressionException("These images are too large to combine on this device.")
         } catch (e: CompressionException) {
             throw e
+        } catch (c: CancellationException) {
+            throw c
         } catch (e: Exception) {
             throw CompressionException("Couldn't create the PDF from these images.")
         } finally {
@@ -86,7 +95,12 @@ class ImagesToPdfConverter(
         }
     }
 
-    private fun addImagePage(document: PDDocument, item: ImageBatchItem, quality: Int): Boolean {
+    private fun addImagePage(
+        document: PDDocument,
+        item: ImageBatchItem,
+        quality: Int,
+        fitToA4: Boolean
+    ): Boolean {
         val uri = Uri.parse(item.source.uriString)
         var source: Bitmap? = null
         var flattened: Bitmap? = null
@@ -113,14 +127,30 @@ class ImagesToPdfConverter(
             }
             if (jpeg.isEmpty()) return false
 
-            val w = toEncode.width.toFloat()
-            val h = toEncode.height.toFloat()
+            val imgW = toEncode.width.toFloat()
+            val imgH = toEncode.height.toFloat()
             // Build the image + content stream BEFORE attaching the page, so a
             // failure here can't leave a blank page in the saved document.
-            val page = PDPage(PDRectangle(w, h))
             val image = JPEGFactory.createFromStream(document, ByteArrayInputStream(jpeg))
-            PDPageContentStream(document, page).use { cs ->
-                cs.drawImage(image, 0f, 0f, w, h)
+            val page = if (fitToA4) {
+                // A4 in the image's orientation, image scaled to fit & centered.
+                val landscape = imgW > imgH
+                val pageW = if (landscape) A4_LONG else A4_SHORT
+                val pageH = if (landscape) A4_SHORT else A4_LONG
+                val scale = minOf((pageW - 2 * PAGE_MARGIN) / imgW, (pageH - 2 * PAGE_MARGIN) / imgH)
+                val drawW = imgW * scale
+                val drawH = imgH * scale
+                PDPage(PDRectangle(pageW, pageH)).also { p ->
+                    PDPageContentStream(document, p).use { cs ->
+                        cs.drawImage(image, (pageW - drawW) / 2f, (pageH - drawH) / 2f, drawW, drawH)
+                    }
+                }
+            } else {
+                PDPage(PDRectangle(imgW, imgH)).also { p ->
+                    PDPageContentStream(document, p).use { cs ->
+                        cs.drawImage(image, 0f, 0f, imgW, imgH)
+                    }
+                }
             }
             document.addPage(page)
             return true
@@ -146,5 +176,10 @@ class ImagesToPdfConverter(
     companion object {
         /** Longest-edge ceiling per page (OOM safeguard; ~A4 @ 300 DPI). */
         private const val MAX_DIMENSION = 3000
+
+        // A4 in points (1/72"), plus a comfortable margin, for fitted pages.
+        private const val A4_SHORT = 595f
+        private const val A4_LONG = 842f
+        private const val PAGE_MARGIN = 18f
     }
 }

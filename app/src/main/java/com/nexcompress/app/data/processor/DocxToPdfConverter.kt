@@ -31,6 +31,7 @@ import kotlin.coroutines.coroutineContext
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -108,6 +109,8 @@ class DocxToPdfConverter(
                 throw e
             } catch (oom: OutOfMemoryError) {
                 throw CompressionException("This document is too large to convert on this device.")
+            } catch (c: CancellationException) {
+                throw c
             } catch (e: Exception) {
                 throw CompressionException(
                     "Couldn't read this file as a Word document. " +

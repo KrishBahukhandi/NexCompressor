@@ -22,10 +22,12 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
@@ -40,10 +42,12 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.nexcompress.app.data.processor.PdfCompressor
 import com.nexcompress.app.domain.model.CompressionProfile
 import com.nexcompress.app.domain.util.FormatUtils
 import com.nexcompress.app.ui.CompressionViewModel
 import com.nexcompress.app.ui.components.SectionLabel
+import com.nexcompress.app.ui.theme.NexGreen
 
 /**
  * Screen 2 — PDF Configuration Control.
@@ -149,6 +153,14 @@ fun PdfConfigScreen(
                 )
             }
 
+            Spacer(Modifier.height(6.dp))
+            CompressionEstimate(
+                estimate = viewModel.compressEstimate,
+                isEstimating = viewModel.isEstimating,
+                enabled = input != null,
+                onEstimate = { viewModel.estimateCompression() }
+            )
+
             Spacer(Modifier.height(8.dp))
             Button(
                 onClick = {
@@ -227,6 +239,71 @@ private fun ProfileOption(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+        }
+    }
+}
+
+/** Opt-in before/after preview: a button, a spinner, then the projected result. */
+@Composable
+private fun CompressionEstimate(
+    estimate: PdfCompressor.Estimate?,
+    isEstimating: Boolean,
+    enabled: Boolean,
+    onEstimate: () -> Unit
+) {
+    when {
+        isEstimating -> Row(verticalAlignment = Alignment.CenterVertically) {
+            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+            Spacer(Modifier.size(10.dp))
+            Text(
+                "Estimating result size…",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        estimate != null -> Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = if (estimate.percentSaved > 0) NexGreen.copy(alpha = 0.10f)
+                else MaterialTheme.colorScheme.surface
+            )
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Estimated result", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        if (estimate.percentSaved > 0)
+                            "${FormatUtils.formatBytes(estimate.originalSize)} → " +
+                                FormatUtils.formatBytes(estimate.projectedSize)
+                        else "Already optimized — this profile won't make it smaller.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (estimate.percentSaved > 0) {
+                    Text(
+                        "−${estimate.percentSaved}%",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = NexGreen
+                    )
+                }
+            }
+        }
+
+        else -> OutlinedButton(
+            onClick = onEstimate,
+            enabled = enabled,
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Icon(Icons.Filled.Bolt, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.size(8.dp))
+            Text("Estimate result size")
         }
     }
 }

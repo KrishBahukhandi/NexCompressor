@@ -79,11 +79,19 @@ class CompressionViewModel(
         private set
     var selectedProfile by mutableStateOf(CompressionProfile.DEFAULT)
         private set
+    /** Projected before/after for the current profile (null until estimated). */
+    var compressEstimate by mutableStateOf<PdfCompressor.Estimate?>(null)
+        private set
+    var isEstimating by mutableStateOf(false)
+        private set
 
     // --- PDF → Images config ---
     var pdfImageFormat by mutableStateOf(ImageFormat.JPEG)
         private set
     var pdfImageQuality by mutableStateOf(DEFAULT_IMAGE_QUALITY)
+        private set
+    /** Export resolution (DPI) for PDF → Images. */
+    var pdfImageDpi by mutableStateOf(PdfToImageConverter.DEFAULT_DPI)
         private set
 
     // --- Image selection / config (Flow B) ---
@@ -99,6 +107,10 @@ class CompressionViewModel(
     var imagesToPdfName by mutableStateOf("")
         private set
     var imagesToPdfQuality by mutableStateOf(DEFAULT_IMAGE_QUALITY)
+        private set
+
+    /** Images → PDF page sizing: true = fit each image onto A4, false = page = image size. */
+    var imagesPdfFitA4 by mutableStateOf(true)
         private set
 
     /** Unified Images tool: false = export converted image files, true = one PDF. */
@@ -231,7 +243,25 @@ class CompressionViewModel(
         selectedProfile = CompressionProfile.DEFAULT
         pdfImageFormat = ImageFormat.JPEG
         pdfImageQuality = DEFAULT_IMAGE_QUALITY
+        pdfImageDpi = PdfToImageConverter.DEFAULT_DPI
+        compressEstimate = null
+        isEstimating = false
         _state.value = CompressionState.Idle
+    }
+
+    /** Runs a background before/after estimate for the selected profile (opt-in). */
+    fun estimateCompression() {
+        val input = pdfInput ?: return
+        if (isEstimating) return
+        isEstimating = true
+        compressEstimate = null
+        viewModelScope.launch {
+            val est = runCatching {
+                withContext(Dispatchers.IO) { pdfCompressor.estimate(input, selectedProfile) }
+            }.getOrNull()
+            compressEstimate = est
+            isEstimating = false
+        }
     }
 
     /** Updates the editable PDF output name (Screen 2 rename field). */
@@ -240,6 +270,7 @@ class CompressionViewModel(
     }
 
     fun setProfile(profile: CompressionProfile) {
+        if (profile != selectedProfile) compressEstimate = null // estimate is now stale
         selectedProfile = profile
     }
 
@@ -251,6 +282,10 @@ class CompressionViewModel(
         pdfImageQuality = quality.coerceIn(10, 100)
     }
 
+    fun updatePdfImageDpi(dpi: Int) {
+        pdfImageDpi = dpi
+    }
+
     fun setImages(items: List<ImageBatchItem>) {
         imageItems = items
         selectedFormat = ImageFormat.DEFAULT
@@ -258,12 +293,18 @@ class CompressionViewModel(
         imagesToPdfName = items.firstOrNull()?.outputName ?: "images"
         imagesToPdfQuality = DEFAULT_IMAGE_QUALITY
         imagesAsPdf = false
+        imagesPdfFitA4 = true
         _state.value = CompressionState.Idle
     }
 
     /** Toggles the unified Images tool between image-file output and a single PDF. */
     fun updateImagesAsPdf(asPdf: Boolean) {
         imagesAsPdf = asPdf
+    }
+
+    /** Images → PDF: true fits each image onto A4, false sizes the page to the image. */
+    fun updateImagesPdfFitA4(fit: Boolean) {
+        imagesPdfFitA4 = fit
     }
 
     /** Stores a per-image edit (rotate / flip / crop / resize) for one batch item. */
@@ -319,7 +360,7 @@ class CompressionViewModel(
     fun startPdfToImages() = launchJob {
         val input = pdfInput
             ?: throw CompressionException("No document selected. Please pick a PDF first.")
-        pdfToImageConverter.convert(input, pdfImageFormat, pdfImageQuality, progressReporter)
+        pdfToImageConverter.convert(input, pdfImageFormat, pdfImageQuality, pdfImageDpi, progressReporter)
     }
 
     /** Exports the selected PDF as a PowerPoint deck — one full-bleed slide per page. */
@@ -343,7 +384,7 @@ class CompressionViewModel(
             throw CompressionException("No images selected. Please pick up to 5 images first.")
         }
         val name = imagesToPdfName.ifBlank { "images" }
-        imagesToPdfConverter.convert(imageItems, name, imagesToPdfQuality, progressReporter)
+        imagesToPdfConverter.convert(imageItems, name, imagesToPdfQuality, imagesPdfFitA4, progressReporter)
     }
 
     /** Renders the picked text file into a paginated PDF (Screen 3 entry). */
@@ -584,15 +625,19 @@ class CompressionViewModel(
     fun clear() {
         pdfInput = null
         pdfOutputName = ""
+        compressEstimate = null
+        isEstimating = false
         imageItems = emptyList()
         selectedProfile = CompressionProfile.DEFAULT
         pdfImageFormat = ImageFormat.JPEG
         pdfImageQuality = DEFAULT_IMAGE_QUALITY
+        pdfImageDpi = PdfToImageConverter.DEFAULT_DPI
         selectedFormat = ImageFormat.DEFAULT
         imageQuality = DEFAULT_IMAGE_QUALITY
         imagesToPdfName = ""
         imagesToPdfQuality = DEFAULT_IMAGE_QUALITY
         imagesAsPdf = false
+        imagesPdfFitA4 = true
         txtInput = null
         txtPdfName = ""
         txtFontSize = DEFAULT_TXT_FONT_SIZE

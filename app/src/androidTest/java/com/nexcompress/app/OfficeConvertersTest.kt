@@ -184,6 +184,49 @@ class OfficeConvertersTest {
         }
     }
 
+    /**
+     * Wrapped prose lines must be rejoined into one reflowable paragraph, while a
+     * short trailing line stays on its own — so the .docx reads and edits like a
+     * real document instead of one stranded paragraph per visual line.
+     */
+    @Test
+    fun pdfToDocx_rejoinsWrappedLinesIntoParagraphs() = runBlocking<Unit> {
+        val pdf = buildTightLinePdf(
+            listOf(
+                "Revenue across every operating region of the company climbed steadily during the period and",
+                "management expects the favorable momentum to carry well into the upcoming fiscal year ahead.",
+                "Signed by the board."
+            )
+        )
+        try {
+            val item = PdfToDocxConverter(context, storage)
+                .convert(pickedFile(pdf), "test_reflow")
+                .items.single().also { outputs.add(it) }
+
+            val staged = stage(item.uri)
+            try {
+                ZipFile(staged).use { zip ->
+                    val docXml = zip.getInputStream(zip.getEntry("word/document.xml"))
+                        .use { it.readBytes().toString(Charsets.UTF_8) }
+                    // The two wrapped lines share one run (joined by a space).
+                    assertTrue(
+                        "wrapped lines were not rejoined into one paragraph",
+                        docXml.contains("during the period and management expects")
+                    )
+                    // The short closing line keeps its own paragraph.
+                    assertTrue(
+                        "short trailing line should stay its own paragraph",
+                        docXml.contains("""<w:r><w:t xml:space="preserve">Signed by the board.""")
+                    )
+                }
+            } finally {
+                staged.delete()
+            }
+        } finally {
+            pdf.delete()
+        }
+    }
+
     // ------------------------------------------------------------------ //
     // PDF → PowerPoint                                                   //
     // ------------------------------------------------------------------ //
@@ -484,6 +527,36 @@ class OfficeConvertersTest {
                 }
             }
             val f = File(context.cacheDir, "fixture_${System.nanoTime()}.pdf")
+            doc.save(f)
+            return f
+        } finally {
+            doc.close()
+        }
+    }
+
+    /**
+     * Single page whose [lines] are drawn at tight (single) leading, so the text
+     * stripper reads them as consecutive wrapped lines of one paragraph rather
+     * than separate blocks — the input shape the reflow logic is meant to rejoin.
+     */
+    private fun buildTightLinePdf(lines: List<String>, fontSize: Float = 12f): File {
+        val doc = PDDocument()
+        try {
+            val page = PDPage(PDRectangle.LETTER)
+            doc.addPage(page)
+            PDPageContentStream(doc, page).use { cs ->
+                var y = 720f
+                val gap = fontSize * 1.15f // single leading → wrapped-line spacing
+                for (text in lines) {
+                    cs.beginText()
+                    cs.setFont(PDType1Font.HELVETICA, fontSize)
+                    cs.newLineAtOffset(72f, y)
+                    cs.showText(text)
+                    cs.endText()
+                    y -= gap
+                }
+            }
+            val f = File(context.cacheDir, "tight_${System.nanoTime()}.pdf")
             doc.save(f)
             return f
         } finally {

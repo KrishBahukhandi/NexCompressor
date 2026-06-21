@@ -219,24 +219,60 @@ class PdfToDocxConverter(
         }
 
         val body = StringBuilder()
+
+        fun appendParagraph(text: String, style: String?) {
+            body.append("<w:p>")
+            if (style != null) body.append("""<w:pPr><w:pStyle w:val="$style"/></w:pPr>""")
+            body.append("""<w:r><w:t xml:space="preserve">""")
+                .append(escapeXml(text))
+                .append("</w:t></w:r></w:p>")
+        }
+
         pages.forEachIndexed { index, lines ->
             if (index > 0) {
                 body.append("""<w:p><w:r><w:br w:type="page"/></w:r></w:p>""")
             }
-            for (line in lines) {
+            // The widest body line on the page ≈ a full (wrapped) line. A body
+            // line that reaches near that width and doesn't end a clause is a
+            // wrap continuation, so we rejoin it with the following line(s) into a
+            // single reflowable paragraph — rather than emitting one stranded
+            // paragraph per visual line (which makes the .docx painful to edit).
+            // We deliberately under-merge (keep short lines, list items, and
+            // clause-ending lines separate) since that degrades gracefully.
+            val bodyMax = lines
+                .filter { it.text.isNotBlank() && styleFor(it) == null }
+                .maxOfOrNull { it.text.length } ?: 0
+
+            val para = StringBuilder()
+            fun flushPara() {
+                if (para.isNotEmpty()) {
+                    appendParagraph(para.toString(), null)
+                    para.setLength(0)
+                }
+            }
+
+            lines.forEachIndexed { li, line ->
                 if (line.text.isEmpty()) {
+                    flushPara()
                     body.append("<w:p/>")
-                    continue
+                    return@forEachIndexed
                 }
                 val style = styleFor(line)
-                body.append("<w:p>")
                 if (style != null) {
-                    body.append("""<w:pPr><w:pStyle w:val="$style"/></w:pPr>""")
+                    flushPara()
+                    appendParagraph(line.text, style)
+                    return@forEachIndexed
                 }
-                body.append("""<w:r><w:t xml:space="preserve">""")
-                    .append(escapeXml(line.text))
-                    .append("</w:t></w:r></w:p>")
+                if (para.isNotEmpty()) para.append(' ')
+                para.append(line.text)
+
+                val isFullWidth = bodyMax > 0 && line.text.length >= (bodyMax * WRAP_FULLNESS).toInt()
+                val endsClause = line.text.last() in CLAUSE_ENDERS
+                val nextIsBody = li + 1 < lines.size &&
+                    lines[li + 1].text.isNotBlank() && styleFor(lines[li + 1]) == null
+                if (!(isFullWidth && !endsClause && nextIsBody)) flushPara()
             }
+            flushPara()
         }
 
         zip.use { z ->
@@ -295,5 +331,11 @@ class PdfToDocxConverter(
 
         /** Render resolution (longest edge, px) for OCR'ing a scanned page. */
         private const val OCR_RENDER_LONG_EDGE = 2200
+
+        /** A line at least this fraction of the page's widest line is "full" (wrapped). */
+        private const val WRAP_FULLNESS = 0.66f
+
+        /** Trailing chars that end a clause, so the next line starts a new paragraph. */
+        private const val CLAUSE_ENDERS = ".?!:"
     }
 }

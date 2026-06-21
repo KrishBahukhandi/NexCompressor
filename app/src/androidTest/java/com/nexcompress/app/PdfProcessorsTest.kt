@@ -134,6 +134,29 @@ class PdfProcessorsTest {
     }
 
     /**
+     * The before/after estimate must project a real reduction for an image-heavy
+     * PDF (and match what compress would actually produce, within reason).
+     */
+    @Test
+    fun estimate_projectsRealReductionForImageHeavyPdf() = runBlocking<Unit> {
+        val fixture = buildFixturePdf(pages = 2, photoOnFirstPage = true)
+        try {
+            val input = PickedFile(
+                Uri.fromFile(fixture).toString(), fixture.name, fixture.length(), FileType.PDF
+            )
+            val est = PdfCompressor(context, storage).estimate(input, CompressionProfile.RECOMMENDED)
+            assertTrue("estimate should be available", est != null)
+            assertTrue(
+                "projected (${est!!.projectedSize}) must be smaller than original (${est.originalSize})",
+                est.projectedSize in 1 until est.originalSize
+            )
+            assertTrue("percentSaved should be positive", est.percentSaved > 0)
+        } finally {
+            fixture.delete()
+        }
+    }
+
+    /**
      * The compression profiles must actually differ: a more aggressive profile
      * (lower quality + smaller image cap) has to produce a smaller file, else the
      * user's profile choice is meaningless.
