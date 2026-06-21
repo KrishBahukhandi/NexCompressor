@@ -33,11 +33,13 @@ class PdfToImageConverter(
         input: PickedFile,
         format: ImageFormat,
         quality: Int,
+        dpi: Int = DEFAULT_DPI,
         onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }
     ): CompressionResult = withContext(Dispatchers.IO) {
         val uri = Uri.parse(input.uriString)
         var pfd: ParcelFileDescriptor? = null
         var renderer: PdfRenderer? = null
+        val produced = ArrayList<OutputItem>()
         try {
             pfd = context.contentResolver.openFileDescriptor(uri, "r")
                 ?: throw CompressionException("Unable to open the selected document.")
@@ -48,20 +50,26 @@ class PdfToImageConverter(
                 throw CompressionException("This PDF contains no readable pages.")
             }
 
+            // PDF user space is 72 dpi, so scale = target dpi / 72 (clamped for OOM).
+            val scale = (dpi.toFloat() / 72f).coerceIn(MIN_SCALE, MAX_SCALE)
             val baseName = storage.baseNameOf(input.displayName)
-            val produced = ArrayList<OutputItem>(pageCount)
+            produced.ensureCapacity(pageCount)
             for (index in 0 until pageCount) {
                 coroutineContext.ensureActive() // cooperative cancellation
-                produced += renderPageToImage(renderer, index, baseName, format, quality, pageCount)
+                produced += renderPageToImage(renderer, index, baseName, format, quality, pageCount, scale)
                 onProgress(index + 1, pageCount)
             }
             CompressionResult(produced)
         } catch (oom: OutOfMemoryError) {
             throw CompressionException(
-                "This document is too large to convert on this device. Try fewer pages or a smaller PDF."
+                "This document is too large to convert at this resolution. Try a lower DPI or a smaller PDF."
             )
         } catch (e: CompressionException) {
             throw e
+        } catch (c: kotlinx.coroutines.CancellationException) {
+            // Cancelled mid-run — remove the page images already written.
+            produced.forEach { storage.deleteOutput(it.uri) }
+            throw c
         } catch (e: SecurityException) {
             // PdfRenderer signals encrypted documents this way too.
             throw CompressionException(
@@ -84,15 +92,16 @@ class PdfToImageConverter(
         baseName: String,
         format: ImageFormat,
         quality: Int,
-        pageCount: Int
+        pageCount: Int,
+        scale: Float
     ): OutputItem {
         var page: PdfRenderer.Page? = null
         var bitmap: Bitmap? = null
         try {
             page = renderer.openPage(index)
 
-            val width = (page.width * RENDER_SCALE).toInt().coerceAtLeast(1)
-            val height = (page.height * RENDER_SCALE).toInt().coerceAtLeast(1)
+            val width = (page.width * scale).toInt().coerceAtLeast(1)
+            val height = (page.height * scale).toInt().coerceAtLeast(1)
             bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             // Flatten onto white so transparent regions don't render black (esp. JPEG).
             bitmap.eraseColor(Color.WHITE)
@@ -134,7 +143,11 @@ class PdfToImageConverter(
     }
 
     companion object {
-        /** Page-point → pixel scale. 2.0 ≈ 144 DPI, a good balance of clarity vs size. */
-        private const val RENDER_SCALE = 2.0f
+        /** Default export resolution (dots per inch). 150 dpi prints cleanly. */
+        const val DEFAULT_DPI = 150
+
+        /** Render-scale clamp (≈72–432 dpi) so a huge DPI can't blow the heap. */
+        private const val MIN_SCALE = 1.0f
+        private const val MAX_SCALE = 6.0f
     }
 }

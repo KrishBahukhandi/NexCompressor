@@ -124,6 +124,22 @@ class FileStorageManager(private val context: Context) {
         return SavedFile(uri, file.length())
     }
 
+    /**
+     * Deletes an output previously written by [writeOutput] (best-effort). Used to
+     * remove the partial files a cancelled multi-output job already produced.
+     */
+    fun deleteOutput(uriString: String): Boolean = runCatching {
+        val uri = Uri.parse(uriString)
+        if (uri.authority == MediaStore.AUTHORITY) {
+            context.contentResolver.delete(uri, null, null) > 0
+        } else {
+            // Legacy FileProvider output: delete the backing file by name.
+            val dir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), OUTPUT_DIR_NAME)
+            val name = uri.lastPathSegment ?: return@runCatching false
+            File(dir, name).delete()
+        }
+    }.getOrDefault(false)
+
     private fun queryMediaStoreSize(uri: Uri): Long {
         return try {
             context.contentResolver.query(
