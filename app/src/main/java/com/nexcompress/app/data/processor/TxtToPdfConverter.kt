@@ -12,6 +12,7 @@ import com.nexcompress.app.domain.model.CompressionResult
 import com.nexcompress.app.domain.model.FileType
 import com.nexcompress.app.domain.model.OutputItem
 import com.nexcompress.app.domain.model.PickedFile
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -79,6 +80,8 @@ class TxtToPdfConverter(
             throw CompressionException("This text file is too large to convert.")
         } catch (e: CompressionException) {
             throw e
+        } catch (c: CancellationException) {
+            throw c
         } catch (e: Exception) {
             throw CompressionException("Couldn't create the PDF from this text file.")
         } finally {

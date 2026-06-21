@@ -15,6 +15,7 @@ import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
 import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
 import com.tom_roush.pdfbox.pdmodel.graphics.image.JPEGFactory
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -85,6 +86,8 @@ class ImagesToPdfConverter(
             throw CompressionException("These images are too large to combine on this device.")
         } catch (e: CompressionException) {
             throw e
+        } catch (c: CancellationException) {
+            throw c
         } catch (e: Exception) {
             throw CompressionException("Couldn't create the PDF from these images.")
         } finally {

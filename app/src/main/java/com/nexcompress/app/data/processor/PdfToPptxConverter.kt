@@ -14,6 +14,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.zip.ZipOutputStream
 import kotlin.coroutines.coroutineContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -78,6 +79,8 @@ class PdfToPptxConverter(
                 throw e
             } catch (oom: OutOfMemoryError) {
                 throw CompressionException("This PDF is too large to convert on this device.")
+            } catch (c: CancellationException) {
+                throw c
             } catch (e: Exception) {
                 throw CompressionException("Couldn't convert this PDF to a presentation.")
             } finally {

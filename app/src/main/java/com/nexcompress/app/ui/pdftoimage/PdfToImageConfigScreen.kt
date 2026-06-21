@@ -48,6 +48,8 @@ import com.nexcompress.app.domain.util.FormatUtils
 import com.nexcompress.app.ui.CompressionViewModel
 import com.nexcompress.app.ui.components.SectionLabel
 
+private val DPI_OPTIONS = listOf(150, 200, 300)
+
 /**
  * "Export PDF as…" — turn the selected PDF into either a set of page images
  * (JPG/PNG/WebP, with quality) or a PowerPoint deck (one full-bleed slide per
@@ -181,6 +183,26 @@ fun PdfToImageConfigScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+
+                Spacer(Modifier.height(6.dp))
+                SectionLabel("Resolution")
+                val dpi = viewModel.pdfImageDpi
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    DPI_OPTIONS.forEachIndexed { index, value ->
+                        SegmentedButton(
+                            selected = dpi == value,
+                            onClick = { viewModel.updatePdfImageDpi(value) },
+                            shape = SegmentedButtonDefaults.itemShape(index, DPI_OPTIONS.size)
+                        ) {
+                            Text("$value dpi")
+                        }
+                    }
+                }
+                Text(
+                    "Higher DPI = sharper images and larger files. 300 dpi is print quality.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
 
             Spacer(Modifier.height(8.dp))

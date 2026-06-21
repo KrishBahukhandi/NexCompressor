@@ -23,6 +23,7 @@ import com.tom_roush.pdfbox.pdmodel.encryption.InvalidPasswordException
 import com.tom_roush.pdfbox.pdmodel.graphics.form.PDFormXObject
 import com.tom_roush.pdfbox.pdmodel.graphics.image.JPEGFactory
 import com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -84,6 +85,8 @@ class PdfCompressor(
                         "This document is too large to process on this device. " +
                             "Try the Balanced profile to reduce memory usage."
                     )
+                } catch (c: CancellationException) {
+                    throw c // never fall back to rasterizing on a user cancel
                 } catch (e: Exception) {
                     false // PDFBox couldn't parse it; try the raster fallback below.
                 }
@@ -98,6 +101,8 @@ class PdfCompressor(
                             "This document is too large to process on this device. " +
                                 "Try the Balanced profile to reduce memory usage."
                         )
+                    } catch (c: CancellationException) {
+                        throw c
                     } catch (e: Exception) {
                         throw CompressionException("The PDF appears to be corrupted or unreadable.")
                     }
@@ -126,6 +131,58 @@ class PdfCompressor(
                         )
                     )
                 )
+            } finally {
+                rebuilt.delete()
+                staged.delete()
+            }
+        }
+
+    /** Projected outcome of compressing [input] at [profile], before committing. */
+    data class Estimate(val originalSize: Long, val projectedSize: Long) {
+        val savedBytes: Long get() = (originalSize - projectedSize).coerceAtLeast(0)
+        val percentSaved: Int
+            get() = if (originalSize > 0) (savedBytes * 100 / originalSize).toInt() else 0
+    }
+
+    /**
+     * Runs the same recompression as [compress] but returns the projected output
+     * size instead of saving — for a before/after preview. The work is discarded.
+     * Returns null if the document can't be analyzed.
+     */
+    suspend fun estimate(input: PickedFile, profile: CompressionProfile): Estimate? =
+        withContext(Dispatchers.IO) {
+            val uri = Uri.parse(input.uriString)
+            val staged = try {
+                PdfFiles.copyToCache(context, uri, "estimate_")
+            } catch (e: Exception) {
+                return@withContext null
+            }
+            val rebuilt = File.createTempFile("nexest_", ".pdf", context.cacheDir)
+            try {
+                val smartOk = try {
+                    recompressEmbeddedImages(staged, rebuilt, profile); true
+                } catch (c: CancellationException) {
+                    throw c
+                } catch (e: Exception) {
+                    false
+                }
+                if (!smartOk) {
+                    try {
+                        rasterizeDocument(staged, rebuilt, profile)
+                    } catch (c: CancellationException) {
+                        throw c
+                    } catch (e: Exception) {
+                        return@withContext null
+                    }
+                }
+                val originalSize = if (input.sizeBytes > 0) input.sizeBytes else staged.length()
+                val rebuiltSize = rebuilt.length()
+                val useRebuilt = rebuiltSize in 1 until (originalSize - originalSize / 50)
+                Estimate(originalSize, if (useRebuilt) rebuiltSize else originalSize)
+            } catch (c: CancellationException) {
+                throw c
+            } catch (e: Exception) {
+                null
             } finally {
                 rebuilt.delete()
                 staged.delete()
