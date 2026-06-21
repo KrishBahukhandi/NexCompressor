@@ -9,6 +9,7 @@ import com.nexcompress.app.domain.model.OutputItem
 import com.nexcompress.app.domain.model.PickedFile
 import com.tom_roush.pdfbox.io.MemoryUsageSetting
 import com.tom_roush.pdfbox.pdmodel.PDDocument
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -74,6 +75,8 @@ class PdfSplitter(
             throw CompressionException("This PDF is too large to split on this device.")
         } catch (e: CompressionException) {
             throw e
+        } catch (c: CancellationException) {
+            throw c
         } catch (e: Exception) {
             throw CompressionException("Couldn't split this PDF. It may be corrupted or password-protected.")
         } finally {
@@ -91,12 +94,13 @@ class PdfSplitter(
     ): CompressionResult = withContext(Dispatchers.IO) {
         val temp = PdfFiles.copyToCache(context, Uri.parse(source.uriString), "split_")
         var src: PDDocument? = null
+        val items = ArrayList<OutputItem>()
         try {
             src = PDDocument.load(temp, MemoryUsageSetting.setupTempFileOnly())
             val count = src.numberOfPages
             if (count == 0) throw CompressionException("This PDF has no pages.")
 
-            val items = ArrayList<OutputItem>(count)
+            items.ensureCapacity(count)
             for (i in 0 until count) {
                 coroutineContext.ensureActive()
                 val one = PDDocument()
@@ -123,6 +127,10 @@ class PdfSplitter(
             throw CompressionException("This PDF is too large to split on this device.")
         } catch (e: CompressionException) {
             throw e
+        } catch (c: CancellationException) {
+            // Cancelled mid-run — remove the per-page PDFs already written.
+            items.forEach { storage.deleteOutput(it.uri) }
+            throw c
         } catch (e: Exception) {
             throw CompressionException("Couldn't split this PDF. It may be corrupted or password-protected.")
         } finally {
