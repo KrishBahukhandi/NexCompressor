@@ -2,9 +2,12 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <!--
       Output files on API 26–28 are written to the app-specific external Downloads
-      directory (no runtime permission required). Expose it for Share/Preview intents.
+      directory (no runtime permission required). Expose ONLY that subtree.
+
+      SECURITY: we deliberately do NOT expose the cache root or the external-files
+      root. Staged copies of the user's *input* documents live in cache; a broad
+      FileProvider path would let a buggy/future code path mint a shareable
+      content:// URI for those. Least privilege — only the output folder is shared.
     -->
     <external-files-path name="nex_downloads" path="Download/" />
-    <external-files-path name="nex_root" path="." />
-    <cache-path name="nex_cache" path="." />
 </paths>

@@ -1,7 +1,10 @@
 package com.nexcompress.app.ui.home
 
+import android.app.Activity
 import android.content.Intent
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -12,7 +15,10 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -37,9 +43,13 @@ import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.DocumentScanner
 import androidx.compose.material.icons.filled.MergeType
+import androidx.compose.material.icons.filled.Numbers
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Savings
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.outlined.DeleteOutline
@@ -55,9 +65,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.Switch
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -85,12 +99,17 @@ import com.nexcompress.app.domain.model.FileType
 import com.nexcompress.app.domain.util.FormatUtils
 import com.nexcompress.app.ui.AppViewModelProvider
 import com.nexcompress.app.ui.CompressionViewModel
+import com.nexcompress.app.ui.theme.NexCyan
 import com.nexcompress.app.ui.theme.NexGreen
 import com.nexcompress.app.ui.theme.NexIndigo
 import com.nexcompress.app.ui.theme.NexViolet
 import com.nexcompress.app.domain.model.OnlineConversion
 import com.nexcompress.app.ui.util.FileSaver
 import com.nexcompress.app.ui.util.IntentUtils
+import com.nexcompress.app.ui.util.findActivity
+import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.HorizontalDivider
@@ -127,6 +146,9 @@ fun HomeScreen(
     onOpenSplitPdf: () -> Unit,
     onOpenProtectPdf: () -> Unit,
     onOpenAnnotatePdf: () -> Unit,
+    onOpenWatermark: () -> Unit,
+    onOpenPageNumbers: () -> Unit,
+    onOpenOcr: () -> Unit,
     onOpenAbout: () -> Unit,
     onOpenProcessing: () -> Unit,
     homeViewModel: HomeViewModel = viewModel(factory = AppViewModelProvider.Factory)
@@ -232,6 +254,14 @@ fun HomeScreen(
                     )
                 }
             }
+            if (uris.size > CompressionViewModel.MAX_IMAGE_SELECTION) {
+                Toast.makeText(
+                    context,
+                    "Added the first ${CompressionViewModel.MAX_IMAGE_SELECTION} of " +
+                        "${uris.size} images (max ${CompressionViewModel.MAX_IMAGE_SELECTION}).",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
             compressionViewModel.onImagesPicked(uris)
             onOpenImages()
         }
@@ -257,6 +287,14 @@ fun HomeScreen(
                 runCatching {
                     context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
+            }
+            if (uris.size > CompressionViewModel.MAX_MERGE_SELECTION) {
+                Toast.makeText(
+                    context,
+                    "Added the first ${CompressionViewModel.MAX_MERGE_SELECTION} of " +
+                        "${uris.size} PDFs (max ${CompressionViewModel.MAX_MERGE_SELECTION}).",
+                    Toast.LENGTH_LONG
+                ).show()
             }
             compressionViewModel.onMergePicked(uris)
             onOpenMergePdf()
@@ -295,11 +333,106 @@ fun HomeScreen(
             onOpenAnnotatePdf()
         }
     }
+    val watermarkPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            compressionViewModel.onWatermarkPicked(uri)
+            onOpenWatermark()
+        }
+    }
+    val pageNumbersPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            compressionViewModel.onPageNumbersPicked(uri)
+            onOpenPageNumbers()
+        }
+    }
+    val ocrPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            compressionViewModel.onOcrPicked(uri)
+            onOpenOcr()
+        }
+    }
+
+    // Document scanner (ML Kit, via Play Services) — its own full-screen capture
+    // UI returns a ready multi-page PDF, which we then save (optionally OCR'd).
+    var showScanDialog by remember { mutableStateOf(false) }
+    val scannerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val scan = GmsDocumentScanningResult.fromActivityResultIntent(result.data)
+            when {
+                compressionViewModel.scanAsImages -> {
+                    val pages = scan?.pages?.mapNotNull { it.imageUri }.orEmpty()
+                    if (pages.isNotEmpty()) {
+                        compressionViewModel.startSaveScanImages(pages)
+                        onOpenProcessing()
+                    }
+                }
+                else -> {
+                    val pdfUri = scan?.pdf?.uri
+                    if (pdfUri != null) {
+                        if (compressionViewModel.scanMakeSearchable) {
+                            compressionViewModel.startScanToSearchable(pdfUri)
+                        } else {
+                            compressionViewModel.startSaveScan(pdfUri)
+                        }
+                        onOpenProcessing()
+                    }
+                }
+            }
+        }
+    }
+    val scannerOptions = remember {
+        GmsDocumentScannerOptions.Builder()
+            .setGalleryImportAllowed(true)
+            .setPageLimit(100)
+            .setResultFormats(
+                GmsDocumentScannerOptions.RESULT_FORMAT_PDF,
+                GmsDocumentScannerOptions.RESULT_FORMAT_JPEG
+            )
+            .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
+            .build()
+    }
+    val launchScanner = {
+        GmsDocumentScanning.getClient(scannerOptions)
+            .getStartScanIntent(context.findActivity())
+            .addOnSuccessListener { sender ->
+                runCatching { scannerLauncher.launch(IntentSenderRequest.Builder(sender).build()) }
+            }
+            .addOnFailureListener {
+                Toast.makeText(
+                    context,
+                    "Document scanner isn't available on this device.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        Unit
+    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
             NexDrawerSheet(
+                onScan = {
+                    scope.launch { drawerState.close() }
+                    compressionViewModel.prepareScan()
+                    showScanDialog = true
+                },
                 onCompressPdf = {
                     scope.launch { drawerState.close() }
                     runCatching { pdfPicker.launch(arrayOf("application/pdf")) }
@@ -335,6 +468,18 @@ fun HomeScreen(
                 onProtectPdf = {
                     scope.launch { drawerState.close() }
                     runCatching { protectPicker.launch(arrayOf("application/pdf")) }
+                },
+                onWatermark = {
+                    scope.launch { drawerState.close() }
+                    runCatching { watermarkPicker.launch(arrayOf("application/pdf")) }
+                },
+                onPageNumbers = {
+                    scope.launch { drawerState.close() }
+                    runCatching { pageNumbersPicker.launch(arrayOf("application/pdf")) }
+                },
+                onOcr = {
+                    scope.launch { drawerState.close() }
+                    runCatching { ocrPicker.launch(arrayOf("application/pdf")) }
                 },
                 onConvertDocument = { conversion ->
                     scope.launch { drawerState.close() }
@@ -422,9 +567,23 @@ fun HomeScreen(
             }
 
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                FeatureTile(
+                    modifier = Modifier.fillMaxWidth(),
+                    icon = Icons.Filled.DocumentScanner,
+                    accent = NexCyan,
+                    title = "Scan document",
+                    subtitle = "Camera → multi-page PDF",
+                    onClick = { compressionViewModel.prepareScan(); showScanDialog = true }
+                )
+            }
+
+            item {
+                Row(
+                    modifier = Modifier.height(IntrinsicSize.Min),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     FeatureTile(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                         icon = Icons.Filled.PictureAsPdf,
                         accent = NexIndigo,
                         title = "Compress PDF",
@@ -432,7 +591,7 @@ fun HomeScreen(
                         onClick = { runCatching { pdfPicker.launch(arrayOf("application/pdf")) } }
                     )
                     FeatureTile(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                         icon = Icons.Filled.Image,
                         accent = NexViolet,
                         title = "Images",
@@ -443,9 +602,12 @@ fun HomeScreen(
             }
 
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    modifier = Modifier.height(IntrinsicSize.Min),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     FeatureTile(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                         icon = Icons.Filled.Draw,
                         accent = NexGreen,
                         title = "Edit & sign PDF",
@@ -453,7 +615,7 @@ fun HomeScreen(
                         onClick = { runCatching { annotatePicker.launch(arrayOf("application/pdf")) } }
                     )
                     FeatureTile(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                         icon = Icons.Filled.Layers,
                         accent = NexIndigo,
                         title = "Edit PDF",
@@ -513,6 +675,75 @@ fun HomeScreen(
                 renamingEntry = null
             },
             onDismiss = { renamingEntry = null }
+        )
+    }
+
+    if (showScanDialog) {
+        val asImages = compressionViewModel.scanAsImages
+        AlertDialog(
+            onDismissRequest = { showScanDialog = false },
+            icon = { Icon(Icons.Filled.DocumentScanner, contentDescription = null) },
+            title = { Text("Scan document") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text(
+                        "Capture pages with the camera — edges, perspective and lighting " +
+                            "are corrected automatically.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    OutlinedTextField(
+                        value = compressionViewModel.scanName,
+                        onValueChange = compressionViewModel::updateScanName,
+                        label = { Text("Document name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text("Save as", style = MaterialTheme.typography.labelMedium)
+                    Spacer(Modifier.height(4.dp))
+                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                        SegmentedButton(
+                            selected = !asImages,
+                            onClick = { compressionViewModel.updateScanAsImages(false) },
+                            shape = SegmentedButtonDefaults.itemShape(0, 2)
+                        ) { Text("PDF") }
+                        SegmentedButton(
+                            selected = asImages,
+                            onClick = { compressionViewModel.updateScanAsImages(true) },
+                            shape = SegmentedButtonDefaults.itemShape(1, 2)
+                        ) { Text("Images") }
+                    }
+                    if (!asImages) {
+                        Spacer(Modifier.height(12.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Make searchable (OCR)", fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    "Recognise the text so you can search & copy it. Slower.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Spacer(Modifier.size(8.dp))
+                            Switch(
+                                checked = compressionViewModel.scanMakeSearchable,
+                                onCheckedChange = compressionViewModel::updateScanMakeSearchable
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showScanDialog = false
+                    launchScanner()
+                }) { Text("Start scanning") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showScanDialog = false }) { Text("Cancel") }
+            }
         )
     }
 }
@@ -595,16 +826,17 @@ private fun FeatureTile(
     modifier: Modifier = Modifier
 ) {
     // Accent edge: brightest along the top, fading down the sides to a soft outline.
-    val accentBorder = Brush.verticalGradient(
-        colors = listOf(
-            accent,
-            accent.copy(alpha = 0.30f),
-            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+    val outline = MaterialTheme.colorScheme.outlineVariant
+    val accentBorder = remember(accent, outline) {
+        Brush.verticalGradient(
+            colors = listOf(accent, accent.copy(alpha = 0.30f), outline.copy(alpha = 0.5f))
         )
-    )
+    }
     Card(
         onClick = onClick,
-        modifier = modifier.height(156.dp),
+        // Min height (not fixed) so the tile grows instead of clipping its
+        // subtitle at large font scales / long localized strings.
+        modifier = modifier.heightIn(min = 156.dp),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
@@ -913,6 +1145,7 @@ private fun EmptyHistory() {
 
 @Composable
 private fun NexDrawerSheet(
+    onScan: () -> Unit,
     onCompressPdf: () -> Unit,
     onImages: () -> Unit,
     onPdfToImages: () -> Unit,
@@ -922,6 +1155,9 @@ private fun NexDrawerSheet(
     onMergePdf: () -> Unit,
     onSplitPdf: () -> Unit,
     onProtectPdf: () -> Unit,
+    onWatermark: () -> Unit,
+    onPageNumbers: () -> Unit,
+    onOcr: () -> Unit,
     onConvertDocument: (OnlineConversion) -> Unit,
     onAbout: () -> Unit
 ) {
@@ -951,6 +1187,13 @@ private fun NexDrawerSheet(
             HorizontalDivider()
 
             DrawerSectionLabel("On-device tools")
+            NavigationDrawerItem(
+                label = { Text("Scan document") },
+                icon = { Icon(Icons.Filled.DocumentScanner, contentDescription = null) },
+                selected = false,
+                onClick = onScan,
+                modifier = Modifier.padding(horizontal = 12.dp)
+            )
             NavigationDrawerItem(
                 label = { Text("Compress PDF") },
                 icon = { Icon(Icons.Filled.PictureAsPdf, contentDescription = null) },
@@ -1015,6 +1258,30 @@ private fun NexDrawerSheet(
                 icon = { Icon(Icons.Filled.Lock, contentDescription = null) },
                 selected = false,
                 onClick = onProtectPdf,
+                modifier = Modifier.padding(horizontal = 12.dp)
+            )
+
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            DrawerSectionLabel("Stamp & OCR · on-device")
+            NavigationDrawerItem(
+                label = { Text("Watermark PDF") },
+                icon = { Icon(Icons.Filled.WaterDrop, contentDescription = null) },
+                selected = false,
+                onClick = onWatermark,
+                modifier = Modifier.padding(horizontal = 12.dp)
+            )
+            NavigationDrawerItem(
+                label = { Text("Add page numbers") },
+                icon = { Icon(Icons.Filled.Numbers, contentDescription = null) },
+                selected = false,
+                onClick = onPageNumbers,
+                modifier = Modifier.padding(horizontal = 12.dp)
+            )
+            NavigationDrawerItem(
+                label = { Text("Make searchable (OCR)") },
+                icon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                selected = false,
+                onClick = onOcr,
                 modifier = Modifier.padding(horizontal = 12.dp)
             )
 

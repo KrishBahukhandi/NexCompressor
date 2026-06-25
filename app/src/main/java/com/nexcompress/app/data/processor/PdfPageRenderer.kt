@@ -19,11 +19,43 @@ import java.io.File
  */
 class PdfPageRenderer(context: Context, uri: Uri) : Closeable {
 
-    private val tempFile: File = PdfFiles.copyToCache(context, uri, "render_")
-    private val pfd: ParcelFileDescriptor =
-        ParcelFileDescriptor.open(tempFile, ParcelFileDescriptor.MODE_READ_ONLY)
-    private val renderer: PdfRenderer = PdfRenderer(pfd)
+    private val tempFile: File?
+    private val pfd: ParcelFileDescriptor
+    private val renderer: PdfRenderer
     private val lock = Any()
+
+    init {
+        var tmp: File? = null
+        var descriptor: ParcelFileDescriptor? = null
+        var pdf: PdfRenderer? = null
+        try {
+            // Fast path: render straight from the provider's descriptor — no full
+            // file copy (callers that also stage for PDFBox were copying twice).
+            // PdfRenderer needs a *seekable* fd; if a provider gives a non-seekable
+            // one (some cloud providers), fall back to a staged private copy.
+            descriptor = context.contentResolver.openFileDescriptor(uri, "r")
+            if (descriptor != null) {
+                pdf = runCatching { PdfRenderer(descriptor) }.getOrNull()
+                if (pdf == null) {
+                    runCatching { descriptor.close() }
+                    descriptor = null
+                }
+            }
+            if (pdf == null) {
+                tmp = PdfFiles.copyToCache(context, uri, "render_")
+                descriptor = ParcelFileDescriptor.open(tmp, ParcelFileDescriptor.MODE_READ_ONLY)
+                pdf = PdfRenderer(descriptor)
+            }
+        } catch (t: Throwable) {
+            runCatching { pdf?.close() }
+            runCatching { descriptor?.close() }
+            tmp?.delete()
+            throw t
+        }
+        tempFile = tmp
+        pfd = descriptor!!
+        renderer = pdf!!
+    }
 
     val pageCount: Int get() = renderer.pageCount
 
@@ -59,7 +91,7 @@ class PdfPageRenderer(context: Context, uri: Uri) : Closeable {
         synchronized(lock) {
             runCatching { renderer.close() }
             runCatching { pfd.close() }
-            runCatching { tempFile.delete() }
+            runCatching { tempFile?.delete() } // null on the fast (no-copy) path
         }
     }
 }

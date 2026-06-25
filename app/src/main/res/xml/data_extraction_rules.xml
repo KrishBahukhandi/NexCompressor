@@ -1,7 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <data-extraction-rules>
+    <!--
+      PRIVACY (Android 12+): the ledger holds the FILENAMES of processed documents
+      (potentially sensitive). Never upload it to Google cloud backup. Local
+      phone-to-phone transfer stays the user's own device, so history survives a
+      migration without ever leaving the user's hardware.
+    -->
     <cloud-backup>
-        <include domain="database" path="nexcompress.db" />
+        <exclude domain="database" path="nexcompress.db" />
     </cloud-backup>
     <device-transfer>
         <include domain="database" path="nexcompress.db" />

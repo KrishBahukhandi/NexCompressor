@@ -31,6 +31,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +46,9 @@ import com.nexcompress.app.ui.CompressionViewModel
 import com.nexcompress.app.ui.JobProgress
 import com.nexcompress.app.ui.util.findActivity
 import kotlinx.coroutines.delay
+
+/** How long an indeterminate job runs before we reassure the user it's not frozen. */
+private const val SLOW_FILE_HINT_MS = 8_000L
 
 /**
  * Screen 3 — Processing Status Overlay.
@@ -68,8 +72,10 @@ fun ProcessingScreen(
     // While a task runs, the system back gesture cancels it (same as the button).
     BackHandler(enabled = state is CompressionState.Loading) { onCancel() }
 
-    // Fire the bridge exactly once on success.
-    var bridged by remember { mutableStateOf(false) }
+    // Fire the bridge exactly once on success. Saved across config changes /
+    // recreation so a rotation while on a finished job can't re-fire the
+    // interstitial + re-navigate to Results.
+    var bridged by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(state, bridged) {
         when (state) {
@@ -123,6 +129,16 @@ private fun ProcessingContent(progress: JobProgress?, onCancel: () -> Unit) {
             delay(1400)
             index = (index + 1) % messages.size
         }
+    }
+
+    // Watchdog: a single large file can keep one native op (PDFBox load/save,
+    // page render) busy past where cooperative cancellation can yield. After a
+    // few seconds, reassure the user it's working — not frozen — so they don't
+    // force-quit mid-write (which would orphan a half-written file).
+    var slow by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        delay(SLOW_FILE_HINT_MS)
+        slow = true
     }
 
     // Gentle pulsing halo behind the spinner.
@@ -189,7 +205,8 @@ private fun ProcessingContent(progress: JobProgress?, onCancel: () -> Unit) {
 
         Spacer(Modifier.height(8.dp))
         Text(
-            "This runs on your device, so it's quick.",
+            if (slow) "Large files take a little longer — still working, hang tight."
+            else "This runs on your device, so it's quick.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center

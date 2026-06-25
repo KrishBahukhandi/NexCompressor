@@ -165,29 +165,41 @@ private fun rasterizeSignature(strokes: List<List<Offset>>, penColor: Color): Pa
 
     val outW = 1200
     val outH = (outW / aspect).toInt().coerceAtLeast(1)
-    val bmp = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
-    val canvas = AndroidCanvas(bmp)
-    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = penColor.toArgb()
-        style = Paint.Style.STROKE
-        strokeWidth = outW * 0.014f
-        strokeCap = Paint.Cap.ROUND
-        strokeJoin = Paint.Join.ROUND
+    // This rasterizes on the main thread. Guard the allocation/draw so a low-RAM
+    // OutOfMemoryError drops the signature gracefully (caller no-ops on null)
+    // instead of crashing the app.
+    val bmp = try {
+        Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
+    } catch (t: Throwable) {
+        return null
     }
-    points.forEach { stroke ->
-        val path = AndroidPath()
-        stroke.forEachIndexed { i, p ->
-            val xs = p.x * padAspect
-            val px = (xs - minX) / spanX * outW
-            val py = (p.y - minY) / spanY * outH
-            if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
+    return try {
+        val canvas = AndroidCanvas(bmp)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = penColor.toArgb()
+            style = Paint.Style.STROKE
+            strokeWidth = outW * 0.014f
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
         }
-        canvas.drawPath(path, paint)
+        points.forEach { stroke ->
+            val path = AndroidPath()
+            stroke.forEachIndexed { i, p ->
+                val xs = p.x * padAspect
+                val px = (xs - minX) / spanX * outW
+                val py = (p.y - minY) / spanY * outH
+                if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
+            }
+            canvas.drawPath(path, paint)
+        }
+        val bytes = ByteArrayOutputStream().use { baos ->
+            bmp.compress(Bitmap.CompressFormat.PNG, 100, baos)
+            baos.toByteArray()
+        }
+        bytes to aspect
+    } catch (t: Throwable) {
+        null
+    } finally {
+        bmp.recycle()
     }
-    val bytes = ByteArrayOutputStream().use { baos ->
-        bmp.compress(Bitmap.CompressFormat.PNG, 100, baos)
-        baos.toByteArray()
-    }
-    bmp.recycle()
-    return bytes to aspect
 }

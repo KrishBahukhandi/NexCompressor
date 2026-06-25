@@ -24,18 +24,6 @@ interface CompressionHistoryDao {
     @Query("SELECT * FROM compression_history ORDER BY timestamp DESC")
     fun observeAll(): Flow<List<CompressionHistory>>
 
-    /**
-     * Cumulative storage reclaimed ("Total Storage Reclaimed"). Each row is floored
-     * at 0 via scalar max(0, …) so an entry that didn't shrink can't drag the total
-     * negative — keeping it consistent with the per-row savings shown in the log.
-     */
-    @Query("SELECT COALESCE(SUM(max(0, originalSize - outputSize)), 0) FROM compression_history")
-    fun observeTotalSavings(): Flow<Long>
-
-    /** "Total Files Handled" counter. */
-    @Query("SELECT COUNT(*) FROM compression_history")
-    fun observeTotalCount(): Flow<Int>
-
     @Delete
     suspend fun delete(item: CompressionHistory)
 

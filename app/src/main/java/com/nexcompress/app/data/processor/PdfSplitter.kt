@@ -29,7 +29,11 @@ class PdfSplitter(
     suspend fun pageCount(source: PickedFile): Int = withContext(Dispatchers.IO) {
         try {
             PdfPageRenderer(context, Uri.parse(source.uriString)).use { it.pageCount }
-        } catch (e: Exception) {
+        } catch (c: CancellationException) {
+            throw c
+        } catch (t: Throwable) {
+            // Including Errors (e.g. OOM on a pathological PDF): this runs in an
+            // unguarded viewModelScope.launch, so an escaped Error would crash.
             0
         }
     }
@@ -99,6 +103,14 @@ class PdfSplitter(
             src = PDDocument.load(temp, MemoryUsageSetting.setupTempFileOnly())
             val count = src.numberOfPages
             if (count == 0) throw CompressionException("This PDF has no pages.")
+            if (count > MAX_SPLIT_PAGES) {
+                // One output file per page: a 20,000-page PDF would otherwise spew
+                // 20,000 PDFs into Downloads. Use "extract a range" for huge docs.
+                throw CompressionException(
+                    "This PDF has $count pages. Splitting into more than $MAX_SPLIT_PAGES " +
+                        "separate files isn't supported — extract a page range instead."
+                )
+            }
 
             items.ensureCapacity(count)
             for (i in 0 until count) {
@@ -137,5 +149,10 @@ class PdfSplitter(
             runCatching { src?.close() }
             temp.delete()
         }
+    }
+
+    companion object {
+        /** Max one-file-per-page outputs for split-each (storage / time safeguard). */
+        private const val MAX_SPLIT_PAGES = 500
     }
 }

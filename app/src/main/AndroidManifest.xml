@@ -4,9 +4,13 @@
 
     <!--
       NETWORK PERMISSIONS NOTICE
-      NexCompress performs ALL file processing on-device and never uploads user
-      content. The two permissions below exist EXCLUSIVELY so the Google Mobile
-      Ads (AdMob) SDK can fetch/serve ads. No other code path uses the network.
+      All core processing (compress, convert, OCR, scan, watermark, page numbers,
+      edit/sign) runs fully on-device and uploads nothing. INTERNET is used by:
+        1. the Google Mobile Ads (AdMob) SDK, and
+        2. the OPTIONAL online-conversion fallback (RestConversionService) — only
+           for formats with no faithful offline engine, and ONLY when an API key is
+           configured at build time (none ships by default, so it never connects).
+      Keep the Play "Data safety" form consistent with this if a key is ever added.
     -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -67,6 +71,14 @@
         <meta-data
             android:name="com.google.android.gms.ads.flag.OPTIMIZE_INITIALIZATION"
             android:value="true" />
+
+        <!--
+          Asks Play services to pre-fetch the on-device document-scanner module at
+          install time, so the first scan opens without waiting for a download.
+        -->
+        <meta-data
+            android:name="com.google.mlkit.vision.DEPENDENCIES"
+            android:value="docscanner" />
 
         <!--
           FileProvider — grants temporary, permission-free read access to output

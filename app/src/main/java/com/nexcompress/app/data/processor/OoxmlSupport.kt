@@ -2,7 +2,9 @@ package com.nexcompress.app.data.processor
 
 import com.nexcompress.app.domain.model.CompressionException
 import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.InputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
@@ -12,13 +14,41 @@ import org.xmlpull.v1.XmlPullParserFactory
 /**
  * Shared plumbing for reading and writing Office Open XML packages
  * (.docx/.xlsx/.pptx are plain ZIP archives of XML parts).
+ *
+ * SECURITY: .docx/.xlsx are UNTRUSTED archives. Reads are bounded (zip-bomb
+ * defense — a tiny entry can claim to decompress to gigabytes) and the XML
+ * parser has DTD/entity processing disabled (entity-expansion / XXE defense).
  */
 internal object OoxmlSupport {
+
+    /** Hard cap on any single decompressed part — far above real documents,
+     *  far below a decompression bomb. Enforced on ACTUAL bytes, not the
+     *  (spoofable) ZIP header size. */
+    private const val MAX_PART_BYTES = 64L * 1024 * 1024
 
     /** Returns the bytes of one part, or null when the package lacks it. */
     fun readPart(zip: ZipFile, name: String): ByteArray? {
         val entry: ZipEntry = zip.getEntry(name) ?: return null
-        return zip.getInputStream(entry).use { it.readBytes() }
+        return zip.getInputStream(entry).use { readCapped(it) }
+    }
+
+    /** Reads [input] fully but aborts if it exceeds [MAX_PART_BYTES] (zip-bomb guard). */
+    private fun readCapped(input: InputStream): ByteArray {
+        val out = ByteArrayOutputStream()
+        val chunk = ByteArray(64 * 1024)
+        var total = 0L
+        while (true) {
+            val n = input.read(chunk)
+            if (n < 0) break
+            total += n
+            if (total > MAX_PART_BYTES) {
+                throw CompressionException(
+                    "This document is too large or malformed to open safely."
+                )
+            }
+            out.write(chunk, 0, n)
+        }
+        return out.toByteArray()
     }
 
     /** Returns the bytes of one part or fails with a user-facing message. */
@@ -27,10 +57,16 @@ internal object OoxmlSupport {
             "This file doesn't look like a valid $friendlyFormat document."
         )
 
-    /** Namespace-aware pull parser over a part's bytes. */
+    /** Namespace-aware pull parser over a part's bytes, hardened against
+     *  DTD/entity attacks (no DOCTYPE processing → no billion-laughs/XXE). */
     fun parser(bytes: ByteArray): XmlPullParser {
         val factory = XmlPullParserFactory.newInstance()
         factory.isNamespaceAware = true
+        factory.isValidating = false
+        // Explicitly refuse to process the DOCTYPE/DTD. KXmlParser defaults to
+        // this, but making it explicit prevents an entity-expansion bomb from
+        // ever being introduced by a future config change.
+        runCatching { factory.setFeature(XmlPullParser.FEATURE_PROCESS_DOCDECL, false) }
         return factory.newPullParser().apply {
             setInput(ByteArrayInputStream(bytes), "UTF-8")
         }

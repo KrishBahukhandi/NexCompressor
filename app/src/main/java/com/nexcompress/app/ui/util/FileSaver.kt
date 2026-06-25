@@ -80,11 +80,14 @@ object FileSaver {
     private fun copyStream(context: Context, sourceUriString: String, destination: Uri): Boolean {
         return try {
             val resolver = context.contentResolver
-            val input = resolver.openInputStream(Uri.parse(sourceUriString)) ?: return false
-            val output = resolver.openOutputStream(destination, "w")
-                ?: run { input.close(); return false }
-            input.use { i -> output.use { o -> i.copyTo(o) } }
-            true
+            // `use` on the input guarantees it's closed even if opening the output
+            // throws (the previous code leaked the input stream on that path).
+            resolver.openInputStream(Uri.parse(sourceUriString))?.use { input ->
+                resolver.openOutputStream(destination, "w")?.use { output ->
+                    input.copyTo(output)
+                    true
+                } ?: false
+            } ?: false
         } catch (e: Exception) {
             false
         }

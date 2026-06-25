@@ -32,6 +32,10 @@ object AppViewModelProvider {
                 pdfSplitter = container.pdfSplitter,
                 pdfProtector = container.pdfProtector,
                 pdfAnnotator = container.pdfAnnotator,
+                pdfWatermarker = container.pdfWatermarker,
+                pdfPageNumberer = container.pdfPageNumberer,
+                ocrPdfConverter = container.ocrPdfConverter,
+                scannedDocumentSaver = container.scannedDocumentSaver,
                 officeConverter = container.officeConverter,
                 onlineConversionService = container.onlineConversionService
             )
