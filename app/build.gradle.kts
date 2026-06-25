@@ -95,6 +95,11 @@ dependencies {
     // scanned/image-only PDFs for PDF → Word. Inference runs locally; no upload.
     implementation(libs.mlkit.text.recognition)
 
+    // On-device document scanner (Google ML Kit, via Play Services) — camera
+    // capture with edge detection, perspective correction and filters, returning a
+    // ready multi-page PDF. The scanner UI runs in Play Services; no upload.
+    implementation(libs.mlkit.document.scanner)
+
     // Coroutines (heavy multi-threaded file tasks)
     implementation(libs.kotlinx.coroutines.android)
 

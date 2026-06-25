@@ -3,8 +3,8 @@ package com.nexcompress.app.domain.model
 /**
  * A crop rectangle expressed as fractions (0..1) of the *displayed* image
  * (i.e. after rotation/flip), with the origin at the top-left. [FULL] means
- * "no crop". The same normalized rect is applied by [ImageEditor] so what the
- * user frames on screen is exactly what gets cut.
+ * "no crop". The same normalized rect is applied by [com.nexcompress.app.data.processor.ImageTransforms]
+ * so what the user frames on screen is exactly what gets cut.
  */
 data class CropRect(
     val left: Float,
@@ -21,7 +21,10 @@ data class CropRect(
 }
 
 /**
- * Declarative description of an on-device image edit consumed by [ImageEditor].
+ * Declarative description of an on-device image edit. Its geometry is applied by
+ * [com.nexcompress.app.data.processor.ImageTransforms] (used by the unified Images
+ * tool via [com.nexcompress.app.data.processor.ImageConverter] /
+ * [com.nexcompress.app.data.processor.ImagesToPdfConverter]).
  * Operations are applied in a fixed order: orient (rotate + flip) -> crop -> resize -> encode.
  */
 data class ImageEditSpec(

@@ -12,13 +12,14 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.nexcompress.app.data.processor.FileStorageManager
 import com.nexcompress.app.data.processor.ImageConverter
-import com.nexcompress.app.data.processor.ImageEditor
 import com.nexcompress.app.data.processor.ImagesToPdfConverter
 import com.nexcompress.app.data.processor.PdfFiles
 import com.nexcompress.app.data.processor.PdfMerger
 import com.nexcompress.app.data.processor.PdfPageEditor
 import com.nexcompress.app.data.processor.PdfProtector
 import com.nexcompress.app.data.processor.PdfSplitter
+import com.nexcompress.app.data.processor.PdfToImageConverter
+import com.nexcompress.app.domain.model.CompressionException
 import com.nexcompress.app.domain.model.CropRect
 import com.nexcompress.app.domain.model.FileType
 import com.nexcompress.app.domain.model.ImageBatchItem
@@ -101,17 +102,21 @@ class UtilityProcessorsTest {
     }
 
     @Test
-    fun imageEditor_cropsTheSelectedRegion() = runBlocking<Unit> {
+    fun imageConverter_cropsViaEditSpec() = runBlocking<Unit> {
         val jpeg = makeHalfRedHalfBlueJpeg(width = 400, height = 200)
         try {
-            val result = ImageEditor(context, storage).edit(
-                pickedImage(jpeg),
-                ImageEditSpec(
-                    crop = CropRect(0.5f, 0f, 1f, 1f), // keep the blue right half
-                    format = ImageFormat.PNG,
-                    quality = 100
+            // The single-image editor was folded into the unified Images tool, so
+            // the crop geometry now runs through ImageConverter + a per-image edit.
+            val result = ImageConverter(context, storage).convert(
+                listOf(
+                    ImageBatchItem(
+                        source = pickedImage(jpeg),
+                        outputName = "test_crop",
+                        editSpec = ImageEditSpec(crop = CropRect(0.5f, 0f, 1f, 1f)) // keep the blue right half
+                    )
                 ),
-                "test_crop"
+                format = ImageFormat.PNG,
+                quality = 100
             )
             val item = result.items.single().also { outputs.add(it) }
 
@@ -321,6 +326,69 @@ class UtilityProcessorsTest {
     // ------------------------------------------------------------------ //
     // Fixtures                                                           //
     // ------------------------------------------------------------------ //
+
+    // ------------------------------------------------------------------ //
+    // Aggressive edge cases: huge page counts + non-Latin filenames       //
+    // ------------------------------------------------------------------ //
+
+    @Test
+    fun pdfToImages_rejectsRunawayPageCount() = runBlocking<Unit> {
+        val pdf = makeBlankPdf(pages = 501) // over the export cap
+        try {
+            var threw = false
+            try {
+                PdfToImageConverter(context, storage).convert(pickedPdf(pdf), ImageFormat.JPEG, 80)
+            } catch (e: CompressionException) {
+                threw = true
+            }
+            assertTrue("a 501-page PDF must be refused for image export, not flood Downloads", threw)
+        } finally {
+            pdf.delete()
+        }
+    }
+
+    @Test
+    fun splitEach_rejectsRunawayPageCount() = runBlocking<Unit> {
+        val pdf = makeBlankPdf(pages = 501)
+        try {
+            var threw = false
+            try {
+                PdfSplitter(context, storage).splitEach(pickedPdf(pdf), "test_split_big")
+            } catch (e: CompressionException) {
+                threw = true
+            }
+            assertTrue("a 501-page PDF must be refused for split-each", threw)
+        } finally {
+            pdf.delete()
+        }
+    }
+
+    @Test
+    fun composeOutputName_keepsUnicode_butStripsIllegalChars() {
+        // Global users: non-Latin names must survive, not become "_____".
+        assertEquals("दस्तावेज़.pdf", storage.composeOutputName("दस्तावेज़", "pdf"))
+        assertEquals("تقرير.pdf", storage.composeOutputName("تقرير", "pdf"))
+        assertTrue(
+            "emoji should be preserved",
+            storage.composeOutputName("report 😀", "pdf").startsWith("report 😀")
+        )
+        // Filesystem-illegal chars are replaced (not dropped), so nothing collides oddly.
+        assertEquals("a_b_c.pdf", storage.composeOutputName("a/b:c", "pdf"))
+        // Blank / whitespace-only falls back rather than producing ".pdf".
+        assertEquals("file.pdf", storage.composeOutputName("   ", "pdf"))
+    }
+
+    private fun makeBlankPdf(pages: Int): File {
+        val doc = PDDocument()
+        try {
+            repeat(pages) { doc.addPage(PDPage(PDRectangle.LETTER)) }
+            val f = File(context.cacheDir, "blank_${System.nanoTime()}.pdf")
+            doc.save(f)
+            return f
+        } finally {
+            doc.close()
+        }
+    }
 
     private fun pickedImage(f: File) =
         PickedFile(Uri.fromFile(f).toString(), f.name, f.length(), FileType.IMAGE)

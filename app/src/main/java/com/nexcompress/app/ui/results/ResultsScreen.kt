@@ -39,7 +39,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -48,6 +52,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -238,12 +243,23 @@ private fun SuccessBadge(result: CompressionResult) {
         result.type == FileType.PDF -> "Your PDF is ready"
         else -> "All done"
     }
+    // "Done" reveal: the check springs in from small with a gentle bounce.
+    val checkScale = remember { Animatable(0.4f) }
+    LaunchedEffect(Unit) {
+        checkScale.animateTo(
+            targetValue = 1f,
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioMediumBouncy,
+                stiffness = Spring.StiffnessMediumLow
+            )
+        )
+    }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Icon(
             Icons.Filled.CheckCircle,
             contentDescription = null,
             tint = NexGreen,
-            modifier = Modifier.size(28.dp)
+            modifier = Modifier.size(28.dp).scale(checkScale.value)
         )
         Spacer(Modifier.size(10.dp))
         Text(

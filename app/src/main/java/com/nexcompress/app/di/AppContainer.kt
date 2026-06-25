@@ -10,11 +10,15 @@ import com.nexcompress.app.data.processor.ImageConverter
 import com.nexcompress.app.data.processor.ImagesToPdfConverter
 import com.nexcompress.app.data.processor.OfficeConverter
 import com.nexcompress.app.data.processor.PdfCompressor
+import com.nexcompress.app.data.processor.OcrPdfConverter
 import com.nexcompress.app.data.processor.PdfMerger
 import com.nexcompress.app.data.processor.PdfPageEditor
+import com.nexcompress.app.data.processor.PdfPageNumberer
 import com.nexcompress.app.data.processor.PdfProtector
 import com.nexcompress.app.data.processor.PdfAnnotator
 import com.nexcompress.app.data.processor.PdfSplitter
+import com.nexcompress.app.data.processor.PdfWatermarker
+import com.nexcompress.app.data.processor.ScannedDocumentSaver
 import com.nexcompress.app.data.processor.PdfToDocxConverter
 import com.nexcompress.app.data.processor.PdfToImageConverter
 import com.nexcompress.app.data.processor.PdfToPptxConverter
@@ -56,6 +60,12 @@ class AppContainer(context: Context) {
     val pdfSplitter: PdfSplitter by lazy { PdfSplitter(appContext, fileStorageManager) }
     val pdfProtector: PdfProtector by lazy { PdfProtector(appContext, fileStorageManager) }
     val pdfAnnotator: PdfAnnotator by lazy { PdfAnnotator(appContext, fileStorageManager) }
+    val pdfWatermarker: PdfWatermarker by lazy { PdfWatermarker(appContext, fileStorageManager) }
+    val pdfPageNumberer: PdfPageNumberer by lazy { PdfPageNumberer(appContext, fileStorageManager) }
+    val ocrPdfConverter: OcrPdfConverter by lazy { OcrPdfConverter(appContext, fileStorageManager) }
+    val scannedDocumentSaver: ScannedDocumentSaver by lazy {
+        ScannedDocumentSaver(appContext, fileStorageManager)
+    }
 
     // --- On-device Office conversions (docx/xlsx/pptx are zip+XML) ---
     val officeConverter: OfficeConverter by lazy {

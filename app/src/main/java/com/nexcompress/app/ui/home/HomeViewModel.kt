@@ -6,7 +6,7 @@ import com.nexcompress.app.data.local.CompressionHistory
 import com.nexcompress.app.data.repository.HistoryRepository
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -19,18 +19,23 @@ data class HomeUiState(
 
 class HomeViewModel(private val repository: HistoryRepository) : ViewModel() {
 
+    // Savings + count are derived from the single history query the screen already
+    // loads — instead of two extra full-table SQL scans (SUM, COUNT) re-run on
+    // every insert. One table scan, two in-memory reductions over loaded rows.
     val uiState: StateFlow<HomeUiState> =
-        combine(
-            repository.history,
-            repository.totalSavings,
-            repository.totalCount
-        ) { history, savings, count ->
-            HomeUiState(history = history, totalSavings = savings, totalCount = count)
-        }.stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5_000),
-            initialValue = HomeUiState()
-        )
+        repository.history
+            .map { history ->
+                HomeUiState(
+                    history = history,
+                    totalSavings = history.sumOf { (it.originalSize - it.outputSize).coerceAtLeast(0L) },
+                    totalCount = history.size
+                )
+            }
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5_000),
+                initialValue = HomeUiState()
+            )
 
     fun deleteEntry(item: CompressionHistory) {
         viewModelScope.launch { repository.delete(item) }

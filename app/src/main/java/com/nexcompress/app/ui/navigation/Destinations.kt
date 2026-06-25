@@ -15,6 +15,9 @@ object Destinations {
     const val SPLIT_PDF = "split_pdf"
     const val PROTECT_PDF = "protect_pdf"
     const val ANNOTATE_PDF = "annotate_pdf"
+    const val WATERMARK_PDF = "watermark_pdf"
+    const val PAGE_NUMBERS_PDF = "page_numbers_pdf"
+    const val OCR_PDF = "ocr_pdf"
 
     const val PROCESSING = "processing"
     const val RESULTS = "results"

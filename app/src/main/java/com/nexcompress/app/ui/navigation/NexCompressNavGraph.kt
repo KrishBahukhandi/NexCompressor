@@ -8,18 +8,30 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import android.net.Uri
 import com.nexcompress.app.ads.AdManager
 import com.nexcompress.app.domain.model.OnlineConversion
@@ -39,9 +51,22 @@ import com.nexcompress.app.ui.processing.ProcessingScreen
 import com.nexcompress.app.ui.protectpdf.ProtectPdfScreen
 import com.nexcompress.app.ui.results.ResultsScreen
 import com.nexcompress.app.ui.annotatepdf.AnnotatePdfScreen
+import com.nexcompress.app.ui.ocrpdf.OcrPdfScreen
+import com.nexcompress.app.ui.pagenumbers.PageNumbersScreen
 import com.nexcompress.app.ui.splitpdf.SplitPdfScreen
 import com.nexcompress.app.ui.txttopdf.TxtToPdfConfigScreen
 import com.nexcompress.app.ui.util.findActivity
+import com.nexcompress.app.ui.watermark.WatermarkScreen
+
+/**
+ * Max content width on large screens. Phones (< this) are unaffected; tablets,
+ * foldables, and landscape get a centered column instead of stretched forms.
+ */
+private val ADAPTIVE_CONTENT_MAX_WIDTH = 600.dp
+
+/** Screen-transition timings (kept short so navigation never feels sluggish). */
+private const val NAV_ANIM_MS = 280
+private const val NAV_FADE_MS = 200
 
 /**
  * Orchestrates the four core views. The [CompressionViewModel] is scoped to the
@@ -88,10 +113,26 @@ fun NexCompressNavGraph(
         onSharedInputHandled()
     }
 
+    // Home owns a full-width drawer + dashboard, so it stays edge-to-edge. Every
+    // other destination is a form/editor that reads better as a centered, width-
+    // capped column on large screens (tablet / foldable / landscape).
+    val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
+    val contentModifier = if (currentRoute == Destinations.HOME) {
+        Modifier.fillMaxSize()
+    } else {
+        Modifier.fillMaxHeight().widthIn(max = ADAPTIVE_CONTENT_MAX_WIDTH)
+    }
+    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
     NavHost(
         navController = navController,
         startDestination = Destinations.HOME,
-        modifier = modifier
+        modifier = contentModifier,
+        // Material "shared axis X" feel: forward navigation slides in from the
+        // right + fades; the outgoing screen drifts left. Back reverses it.
+        enterTransition = { fadeIn(tween(NAV_ANIM_MS)) + slideInHorizontally(tween(NAV_ANIM_MS)) { it / 5 } },
+        exitTransition = { fadeOut(tween(NAV_FADE_MS)) + slideOutHorizontally(tween(NAV_ANIM_MS)) { -it / 5 } },
+        popEnterTransition = { fadeIn(tween(NAV_ANIM_MS)) + slideInHorizontally(tween(NAV_ANIM_MS)) { -it / 5 } },
+        popExitTransition = { fadeOut(tween(NAV_FADE_MS)) + slideOutHorizontally(tween(NAV_ANIM_MS)) { it / 5 } }
     ) {
         // Screen 1 — Primary Feature Dashboard
         composable(Destinations.HOME) {
@@ -106,6 +147,9 @@ fun NexCompressNavGraph(
                 onOpenSplitPdf = { navController.navigate(Destinations.SPLIT_PDF) },
                 onOpenProtectPdf = { navController.navigate(Destinations.PROTECT_PDF) },
                 onOpenAnnotatePdf = { navController.navigate(Destinations.ANNOTATE_PDF) },
+                onOpenWatermark = { navController.navigate(Destinations.WATERMARK_PDF) },
+                onOpenPageNumbers = { navController.navigate(Destinations.PAGE_NUMBERS_PDF) },
+                onOpenOcr = { navController.navigate(Destinations.OCR_PDF) },
                 onOpenAbout = { navController.navigate(Destinations.ABOUT) },
                 onOpenProcessing = { navController.navigate(Destinations.PROCESSING) }
             )
@@ -197,6 +241,33 @@ fun NexCompressNavGraph(
             )
         }
 
+        // Watermark PDF
+        composable(Destinations.WATERMARK_PDF) {
+            WatermarkScreen(
+                viewModel = compressionViewModel,
+                onBack = { navController.popBackStack() },
+                onStartProcessing = { navController.navigate(Destinations.PROCESSING) }
+            )
+        }
+
+        // Add page numbers
+        composable(Destinations.PAGE_NUMBERS_PDF) {
+            PageNumbersScreen(
+                viewModel = compressionViewModel,
+                onBack = { navController.popBackStack() },
+                onStartProcessing = { navController.navigate(Destinations.PROCESSING) }
+            )
+        }
+
+        // Make searchable (OCR)
+        composable(Destinations.OCR_PDF) {
+            OcrPdfScreen(
+                viewModel = compressionViewModel,
+                onBack = { navController.popBackStack() },
+                onStartProcessing = { navController.navigate(Destinations.PROCESSING) }
+            )
+        }
+
         // Screen 3 — Processing Status Overlay (+ interstitial bridge to Screen 4)
         composable(Destinations.PROCESSING) {
             ProcessingScreen(
@@ -231,6 +302,7 @@ fun NexCompressNavGraph(
             )
         }
     }
+    } // end adaptive-width Box
 
     // "What do you want to do with this PDF?" sheet for a single shared-in PDF.
     sharedPdfUri?.let { uri ->

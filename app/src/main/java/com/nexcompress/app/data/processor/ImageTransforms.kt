@@ -11,9 +11,9 @@ import com.nexcompress.app.domain.model.ImageEditSpec
  * input bitmap when it produces a new one, so callers pass a bitmap they own and
  * use only the returned bitmap afterwards.
  *
- * Used by the single-image [ImageEditor] and by the batch [ImageConverter] /
- * [ImagesToPdfConverter] (which apply a per-image [ImageEditSpec]'s geometry but
- * pick format/quality once for the whole batch).
+ * Used by the batch [ImageConverter] / [ImagesToPdfConverter] (which apply a
+ * per-image [com.nexcompress.app.domain.model.ImageEditSpec]'s geometry but pick
+ * format/quality once for the whole batch).
  */
 internal object ImageTransforms {
 
