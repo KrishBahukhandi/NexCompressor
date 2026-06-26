@@ -746,10 +746,20 @@ private fun updateCrop(crop: CropRect, active: Int, dx: Float, dy: Float): CropR
         }
         else -> return crop
     }
-    l = l.coerceIn(0f, r - MIN_CROP)
-    t = t.coerceIn(0f, b - MIN_CROP)
-    r = r.coerceIn(l + MIN_CROP, 1f)
-    b = b.coerceIn(t + MIN_CROP, 1f)
+    // Clamp to the unit square first, then enforce the minimum crop size by
+    // pushing back whichever edge was just dragged. Single-bound coercions
+    // (coerceAtLeast/coerceAtMost) only — a two-bound coerceIn(min,max) would
+    // throw the moment a handle is dragged past the opposite edge (min > max).
+    l = l.coerceIn(0f, 1f); r = r.coerceIn(0f, 1f)
+    t = t.coerceIn(0f, 1f); b = b.coerceIn(0f, 1f)
+    val draggedRight = active == 1 || active == 3
+    val draggedBottom = active == 2 || active == 3
+    if (r - l < MIN_CROP) {
+        if (draggedRight) r = (l + MIN_CROP).coerceAtMost(1f) else l = (r - MIN_CROP).coerceAtLeast(0f)
+    }
+    if (b - t < MIN_CROP) {
+        if (draggedBottom) b = (t + MIN_CROP).coerceAtMost(1f) else t = (b - MIN_CROP).coerceAtLeast(0f)
+    }
     return CropRect(l, t, r, b)
 }
 
