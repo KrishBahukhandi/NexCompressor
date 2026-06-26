@@ -164,11 +164,20 @@ class FileStorageManager(private val context: Context) {
 
     /**
      * Sanitizes a (possibly user-typed) base name and appends the extension, e.g.
-     * ("My Report","pdf") -> "My Report.pdf". Illegal filename characters are
-     * replaced; blank input falls back to "file".
+     * ("My Report","pdf") -> "My Report.pdf". Only characters that are actually
+     * illegal in a filename on Android storage (FAT/exFAT reserved chars + control
+     * chars) are replaced — Unicode letters are KEPT, so Hindi/Arabic/CJK/emoji
+     * names survive instead of being mangled to underscores. Blank input falls
+     * back to "file".
      */
     fun composeOutputName(baseName: String, extension: String): String {
-        val safe = baseName.replace(Regex("[^A-Za-z0-9-_ ]"), "_").trim().take(60).ifBlank { "file" }
+        val safe = baseName
+            .replace(Regex("""[\\/:*?"<>|\x00-\x1F]"""), "_")
+            .trim()
+            .take(100)
+            .trim()
+            .trimEnd('.') // a trailing dot before the real extension confuses some apps
+            .ifBlank { "file" }
         return "$safe.$extension"
     }
 

@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
-    <!-- The Room ledger is small, local, and safe to back up. -->
-    <include domain="database" path="nexcompress.db" />
+    <!--
+      PRIVACY (Android 11 and below — controls auto-backup AND `adb backup`):
+      the ledger holds the FILENAMES of documents the user processed, which can
+      themselves be sensitive (medical / legal / financial). For an on-device app
+      that promises nothing leaves the device, never put it in a backup blob.
+    -->
+    <exclude domain="database" path="nexcompress.db" />
 </full-backup-content>

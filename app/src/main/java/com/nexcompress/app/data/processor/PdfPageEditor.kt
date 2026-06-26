@@ -10,6 +10,7 @@ import com.nexcompress.app.domain.model.PdfPageOp
 import com.nexcompress.app.domain.model.PickedFile
 import com.tom_roush.pdfbox.io.MemoryUsageSetting
 import com.tom_roush.pdfbox.pdmodel.PDDocument
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -27,7 +28,11 @@ class PdfPageEditor(
     suspend fun pageCount(source: PickedFile): Int = withContext(Dispatchers.IO) {
         try {
             PdfPageRenderer(context, Uri.parse(source.uriString)).use { it.pageCount }
-        } catch (e: Exception) {
+        } catch (c: CancellationException) {
+            throw c
+        } catch (t: Throwable) {
+            // Including Errors (e.g. OOM on a pathological PDF): this runs in an
+            // unguarded viewModelScope.launch, so an escaped Error would crash.
             0
         }
     }

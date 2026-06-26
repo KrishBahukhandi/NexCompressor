@@ -49,6 +49,14 @@ class PdfToImageConverter(
             if (pageCount <= 0) {
                 throw CompressionException("This PDF contains no readable pages.")
             }
+            if (pageCount > MAX_PAGES) {
+                // Without this, a 20,000-page PDF would try to write 20,000 image
+                // files into Downloads — flooding storage and running for ages.
+                throw CompressionException(
+                    "This PDF has $pageCount pages. Exporting more than $MAX_PAGES images " +
+                        "at once isn't supported — split it into smaller files first."
+                )
+            }
 
             // PDF user space is 72 dpi, so scale = target dpi / 72 (clamped for OOM).
             val scale = (dpi.toFloat() / 72f).coerceIn(MIN_SCALE, MAX_SCALE)
@@ -143,6 +151,9 @@ class PdfToImageConverter(
     }
 
     companion object {
+        /** Max pages exportable as images in one job (storage / time safeguard). */
+        private const val MAX_PAGES = 500
+
         /** Default export resolution (dots per inch). 150 dpi prints cleanly. */
         const val DEFAULT_DPI = 150
 

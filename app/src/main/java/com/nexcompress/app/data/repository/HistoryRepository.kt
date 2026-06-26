@@ -16,8 +16,6 @@ class HistoryRepository(
 ) {
 
     val history: Flow<List<CompressionHistory>> = dao.observeAll()
-    val totalSavings: Flow<Long> = dao.observeTotalSavings()
-    val totalCount: Flow<Int> = dao.observeTotalCount()
 
     /** Local storage write routine invoked once processing completes. */
     suspend fun record(result: CompressionResult) {
